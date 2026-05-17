@@ -36,13 +36,13 @@ runs:
 
     - name: Install quizz
       shell: bash
-      env:
-        GH_TOKEN: ${{ github.token }}
       run: |
         if [ "${{ inputs.source }}" = "git" ]; then
-          REPO="${{ github.action_repository }}"
-          REF="${{ github.action_ref }}"
-          uv tool install "git+https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git@${REF}"
+          # Install from the local checkout of this action's own source repo.
+          # $GITHUB_ACTION_PATH points to the dir containing this action.yml,
+          # so ../.. is the repo root.
+          REPO_ROOT="$(cd "$GITHUB_ACTION_PATH/../.." && pwd)"
+          uv tool install --from "$REPO_ROOT" quizz
         else
           uv tool install "quizz==${{ inputs.version }}"
         fi
