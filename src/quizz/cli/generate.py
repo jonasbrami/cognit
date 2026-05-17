@@ -1,8 +1,10 @@
 """`quizz generate` — used by the Generator GitHub Action."""
 
 import os
+from pathlib import Path
 
 import typer
+from anthropic import APIError as AnthropicAPIError
 from openai import OpenAIError
 from pydantic import ValidationError
 
@@ -16,9 +18,11 @@ from quizz.ghio.pr import fetch_pr_info, post_comment
 
 
 def _make_llm(model: str, provider: str = "auto") -> LLMClient:
-    """Pick an LLM provider. 'auto' uses Anthropic if ANTHROPIC_API_KEY is set, else GitHub Models."""
+    """Pick an LLM provider. 'auto' prefers Anthropic (API key or Claude Code OAuth), else GitHub Models."""
     if provider == "auto":
-        provider = "anthropic" if os.environ.get("ANTHROPIC_API_KEY") else "github"
+        has_anthropic_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
+        has_claude_oauth = (Path.home() / ".claude" / ".credentials.json").exists()
+        provider = "anthropic" if (has_anthropic_key or has_claude_oauth) else "github"
     if provider == "anthropic":
         # If --model wasn't customized from the default, use a Claude default
         anthropic_model = model if model not in ("gpt-4o-mini", "gpt-4o") else "claude-sonnet-4-6"
@@ -57,12 +61,12 @@ def run(
             llm=_make_llm(model, provider),
             model=model,
         )
-    except OpenAIError as e:
-        typer.echo(f"LLM call failed: {e}", err=True)
-        raise typer.Exit(code=1)
+    except (OpenAIError, AnthropicAPIError) as e:
+        typer.echo(f"LLM call failed: {type(e).__name__}: {e}", err=True)
+        raise typer.Exit(code=1) from None
     except ValidationError as e:
         typer.echo(f"LLM returned malformed quiz: {e}", err=True)
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
     md = render_quiz(quiz)
     if dry_run:
         typer.echo(md)
