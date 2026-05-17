@@ -13,10 +13,12 @@
   <main id="quiz"></main>
   <button id="submit">Submit answers</button>
   <pre id="result"></pre>
-  <script type="module">
+  <!-- mermaid UMD bundle: registers window.mermaid -->
+  <script src="/static/mermaid.min.js"></script>
+  <script>
     window.QUIZ = __QUIZ_JSON__;
     window.PR_URL = "__PR_URL__";
   </script>
-  <script type="module" src="/static/quiz.js"></script>
+  <script src="/static/quiz.js"></script>
 </body>
 </html>
