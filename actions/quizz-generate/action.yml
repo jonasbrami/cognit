@@ -3,8 +3,11 @@ description: "Generate a PR-author comprehension quiz and post it as a PR commen
 
 inputs:
   version:
-    description: "Pinned quizz PyPI version"
+    description: "Pinned quizz PyPI version (used when source=pypi)"
     default: "0.1.0"
+  source:
+    description: "Install source: 'pypi' or 'git' (clones the action's own repo). Use 'git' before v0.1.0 is on PyPI."
+    default: "git"
   model:
     description: "LLM model to use (e.g. gpt-4o-mini)"
     default: "gpt-4o-mini"
@@ -33,7 +36,16 @@ runs:
 
     - name: Install quizz
       shell: bash
-      run: uv tool install "quizz==${{ inputs.version }}"
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        if [ "${{ inputs.source }}" = "git" ]; then
+          REPO="${{ github.action_repository }}"
+          REF="${{ github.action_ref }}"
+          uv tool install "git+https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git@${REF}"
+        else
+          uv tool install "quizz==${{ inputs.version }}"
+        fi
 
     - name: Run generator
       shell: bash
