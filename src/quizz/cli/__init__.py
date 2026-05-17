@@ -1,5 +1,6 @@
 import typer
 from quizz.cli.version import __version__
+from quizz.cli import take as _take
 
 app = typer.Typer(no_args_is_help=True, help="PR-author comprehension quiz tool")
 
@@ -17,10 +18,13 @@ def root(
     pass
 
 
-@app.command()
-def take() -> None:
-    """Take a quiz on a PR."""
-    typer.echo("take: not implemented yet")
+@app.command("take")
+def take_cmd(
+    pr: str | None = typer.Option(None, "--pr", help="PR URL (default: auto-detect)"),
+    show_results: bool = typer.Option(False, "--show-results"),
+) -> None:
+    """Take a quiz on a PR locally."""
+    _take.run(pr, show_results=show_results)
 
 
 @app.command("generate")
