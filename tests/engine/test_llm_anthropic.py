@@ -79,7 +79,20 @@ def test_grade_open_via_tool_use(monkeypatch: pytest.MonkeyPatch) -> None:
     assert fb == "good"
 
 
-def test_missing_key_raises_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_missing_credentials_raises_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both ANTHROPIC_API_KEY unset AND no Claude Code OAuth available."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr("quizz.engine.llm_anthropic._load_claude_code_oauth", lambda: None)
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
         AnthropicLLM()
+
+
+def test_falls_back_to_claude_code_oauth(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When ANTHROPIC_API_KEY is unset, uses ~/.claude/.credentials.json OAuth token."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(
+        "quizz.engine.llm_anthropic._load_claude_code_oauth", lambda: "fake-oauth-token"
+    )
+    llm = AnthropicLLM()
+    # Anthropic SDK stores it in the client config; verify via the bearer auth header
+    assert llm._client.auth_token == "fake-oauth-token"

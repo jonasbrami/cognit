@@ -1,7 +1,10 @@
 """Anthropic SDK adapter for quizz. Uses tool use to enforce schema compliance."""
 
+import json
 import os
+import time
 from importlib import resources
+from pathlib import Path
 from typing import Any, cast
 
 from anthropic import Anthropic
@@ -11,8 +14,39 @@ from quizz.engine.llm import GenerateRequest
 from quizz.engine.models import Quiz
 
 
-def _no_anthropic_key() -> str:
-    raise RuntimeError("Anthropic provider requires ANTHROPIC_API_KEY to be set.")
+# Beta header required when authenticating with a Claude Code OAuth token.
+_OAUTH_BETA_HEADER = "oauth-2025-04-20"
+_CLAUDE_CREDS_PATH = Path.home() / ".claude" / ".credentials.json"
+
+
+def _load_claude_code_oauth() -> str | None:
+    """Read the Claude Code OAuth access token from ~/.claude/.credentials.json.
+
+    Returns the access token if present and unexpired, else None.
+    """
+    if not _CLAUDE_CREDS_PATH.exists():
+        return None
+    try:
+        creds = json.loads(_CLAUDE_CREDS_PATH.read_text())
+        oauth = creds.get("claudeAiOauth") or {}
+        token = oauth.get("accessToken")
+        expires_at_ms = oauth.get("expiresAt")
+        if not token:
+            return None
+        if expires_at_ms is not None and expires_at_ms < time.time() * 1000:
+            # Expired — caller should re-run `claude login`.
+            return None
+        return str(token)
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _no_anthropic_credentials() -> str:
+    raise RuntimeError(
+        "Anthropic provider needs credentials. Either:\n"
+        "  - set ANTHROPIC_API_KEY (API key), or\n"
+        "  - run `claude login` (uses your Claude Code OAuth session)"
+    )
 
 
 def _load_prompt(name: str) -> str:
@@ -25,6 +59,12 @@ _GRADE_TOOL_NAME = "submit_grade"
 
 class AnthropicLLM:
     """LLM client using Anthropic's tool use for guaranteed-schema output.
+
+    Auth resolution order:
+      1. Explicit `api_key` argument.
+      2. `ANTHROPIC_API_KEY` env var.
+      3. Claude Code OAuth session at `~/.claude/.credentials.json`
+         (billed to the user's Claude Code subscription).
 
     Note: Anthropic doesn't have a `models/inference` endpoint with strict schema mode like
     OpenAI's `parse`. Instead we define a tool whose `input_schema` is the Quiz schema, and
@@ -39,9 +79,18 @@ class AnthropicLLM:
     ) -> None:
         self._model = model
         self._max_tokens = max_tokens
-        self._client = Anthropic(
-            api_key=api_key or os.environ.get("ANTHROPIC_API_KEY") or _no_anthropic_key(),
-        )
+
+        resolved_api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        if resolved_api_key:
+            self._client = Anthropic(api_key=resolved_api_key)
+        else:
+            oauth_token = _load_claude_code_oauth()
+            if oauth_token is None:
+                _no_anthropic_credentials()
+            self._client = Anthropic(
+                auth_token=oauth_token,
+                default_headers={"anthropic-beta": _OAUTH_BETA_HEADER},
+            )
 
     def generate_quiz(self, req: GenerateRequest) -> Quiz:
         files_blob = "\n\n".join(
