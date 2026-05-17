@@ -1,6 +1,7 @@
 import typer
 from quizz.cli.version import __version__
 from quizz.cli import take as _take
+from quizz.cli import grade as _grade
 
 app = typer.Typer(no_args_is_help=True, help="PR-author comprehension quiz tool")
 
@@ -49,7 +50,10 @@ def generate_cmd(
     )
 
 
-@app.command()
-def grade() -> None:
+@app.command("grade")
+def grade_cmd(
+    pr: str = typer.Option(..., "--pr"),
+    model: str = typer.Option("gpt-4o-mini", "--model"),
+) -> None:
     """Grade submitted answers (used by the GitHub Action)."""
-    typer.echo("grade: not implemented yet")
+    _grade.run(pr, model=model)
