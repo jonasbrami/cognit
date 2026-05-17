@@ -1,0 +1,61 @@
+import pytest
+from pydantic import ValidationError
+from quizz.engine.models import (
+    Quiz, Question, MCQQuestion, MermaidQuestion, OpenQuestion, TrueFalseQuestion,
+    Answers, AnswerEntry, Results, QuestionResult,
+)
+
+
+def test_mcq_question_round_trip():
+    q = MCQQuestion(id="q1", prompt="Why?", options=["A", "B", "C"], answer="B")
+    data = q.model_dump()
+    assert MCQQuestion.model_validate(data) == q
+
+
+def test_mcq_answer_must_be_one_of_options():
+    with pytest.raises(ValidationError):
+        MCQQuestion(id="q1", prompt="Why?", options=["A", "B"], answer="Z")
+
+
+def test_mermaid_question():
+    q = MermaidQuestion(
+        id="q2", prompt="Which diagram?",
+        options={"A": "flowchart LR\nA-->B", "B": "flowchart LR\nB-->A"},
+        answer="A",
+    )
+    assert q.answer == "A"
+
+
+def test_open_question():
+    q = OpenQuestion(id="q3", prompt="Explain.", rubric="Mentions X, Y.")
+    assert q.rubric.startswith("Mentions")
+
+
+def test_tf_question():
+    q = TrueFalseQuestion(id="q4", prompt="Is it?", answer=True)
+    assert q.answer is True
+
+
+def test_quiz_discriminated_union():
+    quiz = Quiz(
+        version="1", pr_number=42,
+        questions=[
+            MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A"),
+            OpenQuestion(id="q3", prompt="?", rubric="r"),
+        ],
+    )
+    raw = quiz.model_dump_json()
+    parsed = Quiz.model_validate_json(raw)
+    assert parsed == quiz
+    assert isinstance(parsed.questions[0], MCQQuestion)
+    assert isinstance(parsed.questions[1], OpenQuestion)
+
+
+def test_answers_results():
+    a = Answers(pr_number=42, entries=[AnswerEntry(question_id="q1", value="A")])
+    r = Results(
+        pr_number=42, total_score=80,
+        per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")],
+    )
+    assert a.entries[0].value == "A"
+    assert r.total_score == 80
