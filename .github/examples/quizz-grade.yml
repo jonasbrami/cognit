@@ -1,0 +1,21 @@
+name: Quizz — grade
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  models: read
+
+jobs:
+  grade:
+    # Only fire on PR comments that look like answers from the PR author
+    if: >
+      github.event.issue.pull_request &&
+      contains(github.event.comment.body, '<!-- quizz:answers v1 -->') &&
+      github.event.comment.user.login == github.event.issue.user.login
+    runs-on: ubuntu-latest
+    steps:
+      - uses: <your-org>/quizz/actions/quizz-grade@v1

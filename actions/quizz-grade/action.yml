@@ -1,0 +1,29 @@
+name: "Quizz Grade"
+description: "Grade submitted answers comment on a PR and post the results."
+
+inputs:
+  version:
+    description: "Pinned quizz PyPI version"
+    default: "0.1.0"
+  model:
+    description: "LLM model to use for open-question grading"
+    default: "gpt-4o-mini"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup uv
+      uses: astral-sh/setup-uv@v3
+
+    - name: Install quizz
+      shell: bash
+      run: uv tool install "quizz==${{ inputs.version }}"
+
+    - name: Run grader
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+      run: |
+        quizz grade \
+          --pr "${{ github.event.issue.pull_request.url || github.event.issue.html_url }}" \
+          --model "${{ inputs.model }}"
