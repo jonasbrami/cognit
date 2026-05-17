@@ -1,0 +1,48 @@
+name: "Quizz Generate"
+description: "Generate a PR-author comprehension quiz and post it as a PR comment."
+
+inputs:
+  version:
+    description: "Pinned quizz PyPI version"
+    default: "0.1.0"
+  model:
+    description: "LLM model to use (e.g. gpt-4o-mini)"
+    default: "gpt-4o-mini"
+  min-diff-lines:
+    description: "Skip PRs below this number of changed lines"
+    default: "50"
+  max-diff-lines:
+    description: "Skip PRs above this number of changed lines"
+    default: "2000"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup uv
+      uses: astral-sh/setup-uv@v3
+
+    - name: Cache npm
+      uses: actions/cache@v4
+      with:
+        path: ~/.npm
+        key: npm-mermaid-cli-${{ runner.os }}
+
+    - name: Install mermaid-cli
+      shell: bash
+      run: npm install -g @mermaid-js/mermaid-cli@10
+
+    - name: Install quizz
+      shell: bash
+      run: uv tool install "quizz==${{ inputs.version }}"
+
+    - name: Run generator
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+      run: |
+        quizz generate \
+          --pr "${{ github.event.pull_request.html_url }}" \
+          --post \
+          --model "${{ inputs.model }}" \
+          --min-diff-lines "${{ inputs.min-diff-lines }}" \
+          --max-diff-lines "${{ inputs.max-diff-lines }}"
