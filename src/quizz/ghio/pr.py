@@ -55,3 +55,13 @@ def list_comments(pr_url_or_number: str) -> list[dict[str, object]]:
     )
     data = json.loads(result.stdout)
     return data["comments"]  # type: ignore[no-any-return]
+
+
+def find_latest_marker_comment(pr_url_or_number: str, marker: str) -> str | None:
+    """Return the body of the most recent PR comment containing `marker`, or None."""
+    comments = list_comments(pr_url_or_number)
+    matching = [c for c in comments if marker in str(c["body"])]
+    if not matching:
+        return None
+    matching.sort(key=lambda c: str(c["createdAt"]), reverse=True)
+    return str(matching[0]["body"])
