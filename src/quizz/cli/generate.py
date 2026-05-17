@@ -1,6 +1,8 @@
 """`quizz generate` — used by the Generator GitHub Action."""
 
 import typer
+from openai import OpenAIError
+from pydantic import ValidationError
 
 from quizz.comment.render import render_quiz
 from quizz.engine.generate import generate_quiz
@@ -12,7 +14,7 @@ from quizz.ghio.pr import fetch_pr_info, post_comment
 
 def _make_llm(model: str) -> LLMClient:
     """Factory hook — monkeypatched in tests to inject FakeLLM."""
-    return GitHubModelsLLM()
+    return GitHubModelsLLM()  # leave as-is; model is passed via GenerateRequest, not LLM ctor
 
 
 def run(
@@ -35,14 +37,22 @@ def run(
     if diff_lines > max_diff_lines:
         typer.echo(f"diff is {diff_lines} lines (> {max_diff_lines}) — skipping.")
         return
-    quiz = generate_quiz(
-        diff=diff,
-        pr_title=info.title,
-        pr_body=info.body,
-        files=files,
-        pr_number=info.number,
-        llm=_make_llm(model),
-    )
+    try:
+        quiz = generate_quiz(
+            diff=diff,
+            pr_title=info.title,
+            pr_body=info.body,
+            files=files,
+            pr_number=info.number,
+            llm=_make_llm(model),
+            model=model,
+        )
+    except OpenAIError as e:
+        typer.echo(f"LLM call failed: {e}", err=True)
+        raise typer.Exit(code=1)
+    except ValidationError as e:
+        typer.echo(f"LLM returned malformed quiz: {e}", err=True)
+        raise typer.Exit(code=1)
     md = render_quiz(quiz)
     if dry_run:
         typer.echo(md)

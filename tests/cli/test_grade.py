@@ -49,3 +49,36 @@ def test_grade_skips_when_no_quiz_or_answers(monkeypatch):
     assert result.exit_code == 0
     assert not posted
     assert "nothing to grade" in result.stdout.lower() or "missing" in result.stdout.lower()
+
+
+def test_grade_handles_llm_failure(monkeypatch):
+    from openai import OpenAIError
+
+    quiz = Quiz(
+        pr_number=42,
+        questions=[
+            OpenQuestion(id="q1", prompt="?", rubric="r"),
+        ],
+    )
+    answers = Answers(
+        pr_number=42,
+        entries=[AnswerEntry(question_id="q1", value="my answer")],
+    )
+    monkeypatch.setattr(
+        "quizz.cli.grade.find_latest_marker_comment",
+        lambda pr, marker: (
+            render_quiz(quiz) if "answers" not in marker else render_answers(answers, 0)
+        ),
+    )
+    monkeypatch.setattr("quizz.cli.grade.post_comment", lambda pr, md: None)
+
+    class BoomLLM:
+        def generate_quiz(self, req):
+            return quiz
+
+        def grade_open(self, *args):
+            raise OpenAIError("simulated grading failure")
+
+    monkeypatch.setattr("quizz.cli.grade._make_llm", lambda model: BoomLLM())
+    result = runner.invoke(app, ["grade", "--pr", "https://github.com/o/r/pull/42"])
+    assert result.exit_code == 1

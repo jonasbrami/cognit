@@ -69,4 +69,12 @@ def render_results(res: Results) -> str:
         lines.append(f"- {icon} `{r.question_id}` — {r.score}%")
         if r.feedback:
             lines.append(f"  > {r.feedback}")
+    lines.append("")
+    lines.append("---")
+    lines.append("<details><summary>Results state (used by the CLI)</summary>")
+    lines.append("")
+    lines.append("```json")
+    lines.append(res.model_dump_json(indent=2))
+    lines.append("```")
+    lines.append("</details>")
     return "\n".join(lines)

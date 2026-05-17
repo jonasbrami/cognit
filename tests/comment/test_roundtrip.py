@@ -46,4 +46,14 @@ def test_results_roundtrip():
     md = render_results(r)
     parsed = parse_results(md)
     assert parsed.total_score == 85
+    assert parsed.pr_number == 7  # NEW assertion
     assert parsed.per_question[0].question_id == "q1"
+
+
+def test_results_parses_legacy_human_only_comment():
+    """Backward compatibility: comments without a JSON state block fall back to text scraping."""
+    md = "<!-- quizz:results v1 -->\n## Quiz results\n\n**Total: 80%**\n\n- ✅ `q1` — 100%\n"
+    parsed = parse_results(md)
+    assert parsed.total_score == 80
+    assert parsed.pr_number == 0  # not recoverable from text-only
+    assert parsed.per_question[0].correct is True

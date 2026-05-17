@@ -24,7 +24,9 @@ class GitHubModelsLLM:
         self,
         base_url: str = "https://models.github.ai/inference",
         token: str | None = None,
+        model: str = "gpt-4o-mini",
     ) -> None:
+        self._model = model
         self._client = OpenAI(
             base_url=base_url,
             api_key=token or os.environ.get("GITHUB_TOKEN") or _no_token_error(),
@@ -57,9 +59,11 @@ class GitHubModelsLLM:
             answer=answer,
         )
         resp = self._client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=self._model,  # USE the stored model
             response_format={"type": "json_object"},
             messages=[{"role": "user", "content": prompt}],
         )
         data = json.loads(resp.choices[0].message.content or "{}")
-        return int(data.get("score", 0)), str(data.get("feedback", ""))
+        score = int(data.get("score", 0))
+        score = max(0, min(100, score))  # CLAMP — protects against bad LLM output
+        return score, str(data.get("feedback", ""))

@@ -61,3 +61,26 @@ def test_generate_respects_quiz_skip_in_body(monkeypatch):
     result = runner.invoke(app, ["generate", "--pr", "https://github.com/o/r/pull/1", "--dry-run"])
     assert result.exit_code == 0
     assert "skip" in result.stdout.lower()
+
+
+def test_generate_handles_llm_failure(monkeypatch):
+    from openai import OpenAIError
+
+    class BoomLLM:
+        def generate_quiz(self, req):
+            raise OpenAIError("simulated network failure")
+
+        def grade_open(self, *args):
+            return (0, "")
+
+    monkeypatch.setattr(
+        "quizz.cli.generate.fetch_pr_info",
+        lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
+    )
+    monkeypatch.setattr(
+        "quizz.cli.generate.fetch_diff_and_files",
+        lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
+    )
+    monkeypatch.setattr("quizz.cli.generate._make_llm", lambda model: BoomLLM())
+    result = runner.invoke(app, ["generate", "--pr", "https://github.com/o/r/pull/1", "--dry-run"])
+    assert result.exit_code == 1

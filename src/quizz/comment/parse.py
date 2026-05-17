@@ -23,9 +23,15 @@ def parse_answers(md: str) -> Answers:
 
 
 def parse_results(md: str) -> Results:
-    """Results markdown is for humans; parser is best-effort over the rendered form."""
-    if "<!-- quizz:results v1 -->" not in md:
+    """Parse a results comment. Prefers the embedded JSON state; falls back to scraping the human text."""
+    marker = "<!-- quizz:results v1 -->"
+    if marker not in md:
         raise ValueError("not a results comment")
+    # Prefer JSON state if present (added in v1; older comments may lack it).
+    try:
+        return Results.model_validate_json(_extract_json(md, marker))
+    except ValueError:
+        pass  # No JSON block; fall back to scraping.
     total = 0
     m = re.search(r"\*\*Total:\s*(\d+)%\*\*", md)
     if m:

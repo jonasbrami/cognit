@@ -16,12 +16,14 @@ def generate_quiz(
     pr_number: int,
     llm: LLMClient,
     max_mermaid_retries: int = 2,
+    model: str = "gpt-4o-mini",
 ) -> Quiz:
     req = GenerateRequest(
         diff=diff,
         pr_title=pr_title,
         pr_body=pr_body,
         files=files,
+        model=model,
     )
     quiz = llm.generate_quiz(req)
     quiz = Quiz(version="1", pr_number=pr_number, questions=quiz.questions)

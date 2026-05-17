@@ -38,7 +38,7 @@ runs:
     - name: Run generator
       shell: bash
       env:
-        GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ github.token }}
       run: |
         quizz generate \
           --pr "${{ github.event.pull_request.html_url }}" \
