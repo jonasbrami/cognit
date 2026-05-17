@@ -1,8 +1,24 @@
+# src/quizz/cli/take.py
 """`quizz take` — user-facing command."""
 
 import json
+import socket
 import subprocess
+import threading
+import webbrowser
+from collections.abc import Callable
+
 import typer
+import uvicorn
+
+from quizz.comment.parse import parse_quiz, parse_results
+from quizz.engine.models import Quiz
+from quizz.ghio.pr import find_latest_marker_comment, post_comment
+from quizz.server.app import build_app
+
+
+_MARKER_QUIZ = "<!-- quizz:quiz v1 -->"
+_MARKER_RESULTS = "<!-- quizz:results v1 -->"
 
 
 def _detect_pr_from_branch() -> str | None:
@@ -19,9 +35,43 @@ def _detect_pr_from_branch() -> str | None:
         return None
 
 
+def _free_port() -> int:
+    """Find an unused localhost TCP port."""
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        port: int = s.getsockname()[1]
+        return port
+
+
+def _serve_blocking(quiz: Quiz, pr_url: str, post_answers: Callable[[str], None]) -> None:
+    """Build the FastAPI app, launch the browser, run uvicorn until killed."""
+    app = build_app(quiz=quiz, pr_url=pr_url, post_answers=post_answers)
+    port = _free_port()
+    url = f"http://127.0.0.1:{port}"
+    typer.echo(f"opening {url} in your browser... (Ctrl-C to quit)")
+    threading.Thread(target=lambda: webbrowser.open(url), daemon=True).start()
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+
+
 def _run_take_flow(pr_url: str, show_results_only: bool) -> None:
-    """Fetch quiz, serve browser UI, post answers. Implemented in M5.4."""
-    raise NotImplementedError("filled in M5.4")
+    if show_results_only:
+        results_md = find_latest_marker_comment(pr_url, _MARKER_RESULTS)
+        if results_md is None:
+            typer.echo("no results yet; the grader Action may still be running.")
+            raise typer.Exit(code=1)
+        typer.echo(parse_results(results_md).model_dump_json(indent=2))
+        return
+
+    quiz_md = find_latest_marker_comment(pr_url, _MARKER_QUIZ)
+    if quiz_md is None:
+        typer.echo("no quiz comment found on this PR — has the generator Action run?")
+        raise typer.Exit(code=1)
+    quiz = parse_quiz(quiz_md)
+    _serve_blocking(
+        quiz,
+        pr_url,
+        post_answers=lambda md: post_comment(pr_url, md),
+    )
 
 
 def run(pr: str | None, show_results: bool) -> None:
