@@ -1,0 +1,10 @@
+You are grading a developer's answer to a comprehension question about their own PR.
+
+Question: {prompt}
+Rubric: {rubric}
+Developer's answer: {answer}
+
+Return JSON: {{"score": <0..100>, "feedback": "<concise explanation>"}}.
+Score 90+ if the answer demonstrates accurate understanding matching the rubric.
+Score 50-89 for partial understanding.
+Score below 50 for misunderstanding.
