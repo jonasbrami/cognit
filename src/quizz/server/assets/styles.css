@@ -20,5 +20,16 @@ label.mermaid-option:has(input:checked) { border-color: #4a9; background: rgba(7
 .mermaid { background: #f6f8fa; padding: 0.75rem; margin-top: 0.5rem; border-radius: 4px; }
 textarea { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; }
 button { padding: 0.7rem 1.5rem; font-size: 1rem; border: none; background: #2d7d4d; color: white; border-radius: 6px; cursor: pointer; }
-button:hover { background: #225e3a; }
+button:hover:not(:disabled) { background: #225e3a; }
+button:disabled { background: #999; cursor: not-allowed; }
+button.publish { background: #1d4ed8; margin-top: 1.5rem; }
+button.publish:hover:not(:disabled) { background: #1e40af; }
 pre { background: #f6f8fa; padding: 1rem; border-radius: 4px; overflow-x: auto; }
+#result { margin-top: 1.5rem; }
+.result-summary h2 { margin: 0.5rem 0; color: #2d7d4d; }
+.result-list { list-style: none; padding-left: 0; }
+.result-list li { padding: 0.5rem 0; border-bottom: 1px solid #eee; }
+.result-list li.bad strong { color: #b03030; }
+.result-list li.ok strong { color: #2d7d4d; }
+.result-list blockquote { margin: 0.5rem 0 0 1.5rem; padding: 0.5rem 0.75rem; border-left: 3px solid #ddd; color: #555; font-size: 0.95em; }
+.publish-status { margin-left: 0.75rem; font-size: 0.95em; color: #555; }

@@ -25,6 +25,7 @@ dev = [
     "ruff",
     "mypy",
     "pillow>=12.2.0",
+    "playwright>=1.59.0",
 ]
 
 [build-system]

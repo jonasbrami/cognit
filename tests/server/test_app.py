@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from quizz.comment.render import render_results
-from quizz.engine.models import MCQQuestion, OpenQuestion, Quiz, Results, QuestionResult
+from quizz.engine.llm_fake import FakeLLM
+from quizz.engine.models import MCQQuestion, OpenQuestion, Quiz
 from quizz.server.app import build_app
 
 
@@ -15,9 +15,17 @@ def _sample_quiz() -> Quiz:
     )
 
 
+def _noop_llm() -> FakeLLM:
+    """Default test LLM: open-question grading returns a fixed canned score."""
+    return FakeLLM(canned_open_score=85, canned_open_feedback="solid")
+
+
 def test_get_root_renders_quiz() -> None:
     app = build_app(
-        quiz=_sample_quiz(), pr_url="https://github.com/o/r/pull/42", post_answers=lambda md: None
+        quiz=_sample_quiz(),
+        pr_url="https://github.com/o/r/pull/42",
+        llm=_noop_llm(),
+        post_comment=lambda md: None,
     )
     client = TestClient(app)
     r = client.get("/")
@@ -27,18 +35,25 @@ def test_get_root_renders_quiz() -> None:
 
 
 def test_static_assets_served() -> None:
-    app = build_app(quiz=_sample_quiz(), pr_url="x", post_answers=lambda md: None)
+    app = build_app(
+        quiz=_sample_quiz(),
+        pr_url="x",
+        llm=_noop_llm(),
+        post_comment=lambda md: None,
+    )
     client = TestClient(app)
     assert client.get("/static/quiz.js").status_code == 200
     assert client.get("/static/styles.css").status_code == 200
 
 
-def test_submit_grades_deterministic_and_posts(monkeypatch: object) -> None:
+def test_submit_grades_everything_no_autopost() -> None:
+    """POST /submit grades deterministic + LLM open Q, returns full Results, posts NOTHING."""
     posted: list[str] = []
     app = build_app(
         quiz=_sample_quiz(),
         pr_url="x",
-        post_answers=lambda md: posted.append(md),
+        llm=FakeLLM(canned_open_score=85, canned_open_feedback="solid"),
+        post_comment=lambda md: posted.append(md),
     )
     client = TestClient(app)
     payload = {
@@ -46,44 +61,73 @@ def test_submit_grades_deterministic_and_posts(monkeypatch: object) -> None:
         "pr_number": 42,
         "entries": [
             {"question_id": "q1", "value": "A"},  # correct
-            {"question_id": "q2", "value": "some answer"},  # open: scored 0 immediately
+            {"question_id": "q2", "value": "good answer"},  # open: LLM-scored 85
         ],
     }
     r = client.post("/submit", json=payload)
     assert r.status_code == 200
     data = r.json()
-    # deterministic score considers only non-open questions: q1 correct = 100
-    assert data["deterministic_score"] == 100
+    assert data["total_score"] == 92  # (100 + 85) / 2 = 92 (integer floor)
+    by_id = {q["question_id"]: q for q in data["per_question"]}
+    assert by_id["q1"]["score"] == 100 and by_id["q1"]["correct"] is True
+    assert by_id["q2"]["score"] == 85 and by_id["q2"]["feedback"] == "solid"
+    # CRUCIAL: nothing posted yet — publishing is opt-in.
+    assert posted == []
+
+
+def test_publish_posts_results_comment() -> None:
+    """POST /publish takes a Results payload and posts it as a PR comment."""
+    posted: list[str] = []
+    app = build_app(
+        quiz=_sample_quiz(),
+        pr_url="x",
+        llm=_noop_llm(),
+        post_comment=lambda md: posted.append(md),
+    )
+    client = TestClient(app)
+    results_payload = {
+        "version": "1",
+        "pr_number": 42,
+        "total_score": 92,
+        "per_question": [
+            {"question_id": "q1", "correct": True, "score": 100, "feedback": ""},
+            {"question_id": "q2", "correct": True, "score": 85, "feedback": "solid"},
+        ],
+    }
+    r = client.post("/publish", json=results_payload)
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "total_score": 92}
     assert len(posted) == 1
-    assert "<!-- quizz:answers v1 -->" in posted[0]
+    assert "<!-- quizz:results v1 -->" in posted[0]
+    assert "92%" in posted[0]
 
 
-def test_results_endpoint_not_ready(monkeypatch: object) -> None:
-    monkeypatch.setattr(
-        "quizz.server.app.find_latest_marker_comment",
-        lambda pr, marker: None,
+def test_submit_then_publish_round_trip() -> None:
+    """End-to-end: submit returns results, then publishing those same results posts."""
+    posted: list[str] = []
+    app = build_app(
+        quiz=_sample_quiz(),
+        pr_url="x",
+        llm=FakeLLM(canned_open_score=60, canned_open_feedback="ok"),
+        post_comment=lambda md: posted.append(md),
     )
-    app = build_app(quiz=_sample_quiz(), pr_url="x", post_answers=lambda md: None)
     client = TestClient(app)
-    r = client.get("/results")
-    assert r.status_code == 200
-    assert r.json() == {"ready": False}
-
-
-def test_results_endpoint_ready(monkeypatch: object) -> None:
-    res = Results(
-        pr_number=42,
-        total_score=80,
-        per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")],
+    submit_resp = client.post(
+        "/submit",
+        json={
+            "version": "1",
+            "pr_number": 42,
+            "entries": [
+                {"question_id": "q1", "value": "B"},  # wrong
+                {"question_id": "q2", "value": "meh"},
+            ],
+        },
     )
-    monkeypatch.setattr(
-        "quizz.server.app.find_latest_marker_comment",
-        lambda pr, marker: render_results(res),
-    )
-    app = build_app(quiz=_sample_quiz(), pr_url="x", post_answers=lambda md: None)
-    client = TestClient(app)
-    r = client.get("/results")
-    assert r.status_code == 200
-    body = r.json()
-    assert body["ready"] is True
-    assert body["results"]["total_score"] == 80
+    assert submit_resp.status_code == 200
+    assert posted == []  # nothing posted yet
+
+    results = submit_resp.json()
+    publish_resp = client.post("/publish", json=results)
+    assert publish_resp.status_code == 200
+    assert len(posted) == 1
+    assert "<!-- quizz:results v1 -->" in posted[0]

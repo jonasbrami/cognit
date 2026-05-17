@@ -7,12 +7,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from quizz.comment.parse import parse_results
-from quizz.comment.render import render_answers
+from quizz.comment.render import render_results
 from quizz.engine.grade import grade
-from quizz.engine.llm_fake import FakeLLM
-from quizz.engine.models import Answers, Quiz
-from quizz.ghio.pr import find_latest_marker_comment
+from quizz.engine.llm import LLMClient
+from quizz.engine.models import Answers, Quiz, Results
 
 # Assets directory: use __file__-relative path so StaticFiles gets a real directory.
 # importlib.resources returns a MultiplexedPath in editable installs that os.path.isdir rejects.
@@ -28,8 +26,21 @@ def build_app(
     *,
     quiz: Quiz,
     pr_url: str,
-    post_answers: Callable[[str], None],
+    llm: LLMClient,
+    post_comment: Callable[[str], None],
 ) -> FastAPI:
+    """Build the FastAPI app for `quizz take`.
+
+    Endpoints:
+      GET /          — quiz HTML page
+      GET /static/*  — bundled assets (CSS, JS, mermaid.min.js)
+      POST /submit   — grade everything in-session (deterministic + LLM open Q); returns
+                       the full Results to the browser. Does NOT post any comment.
+      POST /publish  — opt-in: post the results comment to the PR.
+
+    The browser shows the result inline and only publishes when the user clicks the
+    Publish button.
+    """
     app = FastAPI()
     assets = _assets_dir()
     app.mount("/static", StaticFiles(directory=str(assets)), name="static")
@@ -48,32 +59,15 @@ def build_app(
     async def submit(req: Request) -> JSONResponse:
         body = await req.json()
         answers = Answers.model_validate(body)
-        # Deterministic grading immediately. Open Q gets 0 score and "awaiting CI" feedback;
-        # the grader Action will produce a real score later via the results comment.
-        results = grade(
-            quiz, answers, llm=FakeLLM(canned_open_score=0, canned_open_feedback="awaiting CI")
-        )
-        # Compute deterministic-only score (skip open questions)
-        non_open = [
-            r
-            for r in results.per_question
-            if any(q.id == r.question_id and q.type != "open" for q in quiz.questions)
-        ]
-        det_score = (sum(r.score for r in non_open) // len(non_open)) if non_open else 0
-        md = render_answers(answers, deterministic_score=det_score)
-        post_answers(md)
-        return JSONResponse(
-            {
-                "deterministic_score": det_score,
-                "per_question": [r.model_dump() for r in results.per_question],
-            }
-        )
+        # Grade EVERYTHING in-session: deterministic (MCQ/mermaid/T/F) + LLM for open Q.
+        results = grade(quiz, answers, llm=llm)
+        return JSONResponse(results.model_dump())
 
-    @app.get("/results")
-    def results_endpoint() -> JSONResponse:
-        md = find_latest_marker_comment(pr_url, "<!-- quizz:results v1 -->")
-        if md is None:
-            return JSONResponse({"ready": False})
-        return JSONResponse({"ready": True, "results": parse_results(md).model_dump()})
+    @app.post("/publish")
+    async def publish(req: Request) -> JSONResponse:
+        body = await req.json()
+        results = Results.model_validate(body)
+        post_comment(render_results(results))
+        return JSONResponse({"ok": True, "total_score": results.total_score})
 
     return app

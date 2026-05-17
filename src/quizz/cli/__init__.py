@@ -23,9 +23,11 @@ def root(
 def take_cmd(
     pr: str | None = typer.Option(None, "--pr", help="PR URL (default: auto-detect)"),
     show_results: bool = typer.Option(False, "--show-results"),
+    model: str = typer.Option("gpt-4o-mini", "--model"),
+    llm: str = typer.Option("auto", "--llm", help="LLM provider: auto | anthropic | github"),
 ) -> None:
-    """Take a quiz on a PR locally."""
-    _take.run(pr, show_results=show_results)
+    """Take a quiz on a PR locally; grade everything in-session and optionally publish."""
+    _take.run(pr, show_results=show_results, model=model, provider=llm)
 
 
 @app.command("generate")

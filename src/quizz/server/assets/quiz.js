@@ -3,6 +3,11 @@ window.mermaid.initialize({ startOnLoad: false, securityLevel: "loose" });
 
 const quiz = window.QUIZ;
 const root = document.getElementById("quiz");
+const submitBtn = document.getElementById("submit");
+const resultEl = document.getElementById("result");
+
+// Cached so the Publish button can re-send without re-grading.
+let lastResults = null;
 
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
@@ -88,7 +93,6 @@ async function render() {
     else if (q.type === "tf") section = renderTF(q);
     if (section) root.appendChild(section);
   }
-  // Render all mermaid diagrams now that the DOM is populated.
   try {
     await window.mermaid.run({ querySelector: ".mermaid" });
   } catch (e) {
@@ -96,22 +100,59 @@ async function render() {
   }
 }
 
-async function pollResults() {
-  for (let i = 0; i < 120; i++) {
-    const r = await fetch("/results");
-    const data = await r.json();
-    if (data.ready) {
-      document.getElementById("result").textContent =
-        "FINAL RESULTS:\n" + JSON.stringify(data.results, null, 2);
-      return;
+function renderResults(results) {
+  // Build a friendly result panel: total score + per-question breakdown + Publish button.
+  resultEl.innerHTML = "";
+  const summary = el("div", { class: "result-summary" }, [
+    el("h2", { text: `Total: ${results.total_score}%` }),
+  ]);
+  resultEl.appendChild(summary);
+
+  const list = el("ul", { class: "result-list" });
+  for (const r of results.per_question) {
+    const icon = r.correct ? "✅" : "❌";
+    const li = el("li", { class: r.correct ? "ok" : "bad" }, [
+      el("strong", { text: `${icon} ${r.question_id} — ${r.score}%` }),
+    ]);
+    if (r.feedback) {
+      li.appendChild(el("blockquote", { text: r.feedback }));
     }
-    await new Promise((r) => setTimeout(r, 2500));
+    list.appendChild(li);
   }
-  document.getElementById("result").textContent =
-    "Results not back after 5 minutes — run `quizz take --show-results` later.";
+  resultEl.appendChild(list);
+
+  // Publish button — opt-in.
+  const publishBtn = el("button", {
+    id: "publish",
+    class: "publish",
+    text: "Publish results to PR",
+  });
+  const publishStatus = el("span", { id: "publish-status", class: "publish-status" });
+  resultEl.appendChild(publishBtn);
+  resultEl.appendChild(publishStatus);
+
+  publishBtn.addEventListener("click", async () => {
+    publishBtn.disabled = true;
+    publishStatus.textContent = " Posting…";
+    try {
+      const r = await fetch("/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(lastResults),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      publishStatus.textContent = ` ✓ Posted (total ${data.total_score}%)`;
+    } catch (e) {
+      publishStatus.textContent = ` ✗ Failed: ${e}`;
+      publishBtn.disabled = false;
+    }
+  });
 }
 
-document.getElementById("submit").addEventListener("click", async () => {
+submitBtn.addEventListener("click", async () => {
+  submitBtn.disabled = true;
+  submitBtn.textContent = "Grading…";
   const entries = quiz.questions.map((q) => {
     let value = "";
     if (q.type === "open") {
@@ -123,16 +164,21 @@ document.getElementById("submit").addEventListener("click", async () => {
     }
     return { question_id: q.id, value };
   });
-  const resp = await fetch("/submit", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ version: "1", pr_number: quiz.pr_number, entries }),
-  });
-  const data = await resp.json();
-  document.getElementById("result").textContent =
-    "Deterministic score (awaiting CI for open Q): " +
-    JSON.stringify(data, null, 2);
-  setTimeout(pollResults, 1500);
+  try {
+    const resp = await fetch("/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ version: "1", pr_number: quiz.pr_number, entries }),
+    });
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    lastResults = await resp.json();
+    renderResults(lastResults);
+    submitBtn.textContent = "Re-submit";
+    submitBtn.disabled = false;
+  } catch (e) {
+    resultEl.textContent = "Submission failed: " + e;
+    submitBtn.disabled = false;
+  }
 });
 
 render();
