@@ -17,10 +17,16 @@ def fetch_pr_info(pr_url_or_number: str) -> PRInfo:
     """Fetch PR metadata via `gh pr view --json ...`."""
     result = subprocess.run(
         [
-            "gh", "pr", "view", pr_url_or_number,
-            "--json", "number,title,body,headRepository,headRefName,author",
+            "gh",
+            "pr",
+            "view",
+            pr_url_or_number,
+            "--json",
+            "number,title,body,headRepository,headRefName,author",
         ],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     data = json.loads(result.stdout)
     return PRInfo(
@@ -43,7 +49,9 @@ def post_comment(pr_url_or_number: str, body: str) -> None:
 def list_comments(pr_url_or_number: str) -> list[dict[str, object]]:
     result = subprocess.run(
         ["gh", "pr", "view", pr_url_or_number, "--json", "comments"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     data = json.loads(result.stdout)
     return data["comments"]  # type: ignore[no-any-return]

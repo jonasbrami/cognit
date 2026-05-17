@@ -52,7 +52,9 @@ class GitHubModelsLLM:
 
     def grade_open(self, question_prompt: str, rubric: str, answer: str) -> tuple[int, str]:
         prompt = _load_prompt("grade_open.txt").format(
-            prompt=question_prompt, rubric=rubric, answer=answer,
+            prompt=question_prompt,
+            rubric=rubric,
+            answer=answer,
         )
         resp = self._client.chat.completions.create(
             model="gpt-4o-mini",

@@ -6,10 +6,12 @@ def _sample_quiz() -> Quiz:
     return Quiz(
         pr_number=42,
         questions=[
-            MCQQuestion(id="q1", prompt="Why X?", options=["A","B","C"], answer="B"),
+            MCQQuestion(id="q1", prompt="Why X?", options=["A", "B", "C"], answer="B"),
             MermaidQuestion(
-                id="q2", prompt="Pick the flow:",
-                options={"A": "flowchart LR\nA-->B", "B": "flowchart LR\nB-->A"}, answer="A",
+                id="q2",
+                prompt="Pick the flow:",
+                options={"A": "flowchart LR\nA-->B", "B": "flowchart LR\nB-->A"},
+                answer="A",
             ),
             OpenQuestion(id="q3", prompt="Explain.", rubric="mentions safety"),
             TrueFalseQuestion(id="q4", prompt="Is it?", answer=True),

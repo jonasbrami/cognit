@@ -1,6 +1,5 @@
 import os
 import stat
-from pathlib import Path
 import pytest
 from quizz.ghio.diff import fetch_diff_and_files
 

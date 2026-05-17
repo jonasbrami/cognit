@@ -1,16 +1,24 @@
 from quizz.comment.render import render_quiz, render_answers, render_results
 from quizz.comment.parse import parse_quiz, parse_answers, parse_results
 from quizz.engine.models import (
-    Quiz, Answers, Results, AnswerEntry, QuestionResult,
-    MCQQuestion, OpenQuestion,
+    Quiz,
+    Answers,
+    Results,
+    AnswerEntry,
+    QuestionResult,
+    MCQQuestion,
+    OpenQuestion,
 )
 
 
 def _sample_quiz() -> Quiz:
-    return Quiz(pr_number=7, questions=[
-        MCQQuestion(id="q1", prompt="?", options=["A","B"], answer="B"),
-        OpenQuestion(id="q2", prompt="?", rubric="r"),
-    ])
+    return Quiz(
+        pr_number=7,
+        questions=[
+            MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="B"),
+            OpenQuestion(id="q2", prompt="?", rubric="r"),
+        ],
+    )
 
 
 def test_quiz_roundtrip():
@@ -30,8 +38,11 @@ def test_answers_roundtrip():
 
 
 def test_results_roundtrip():
-    r = Results(pr_number=7, total_score=85,
-                per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")])
+    r = Results(
+        pr_number=7,
+        total_score=85,
+        per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")],
+    )
     md = render_results(r)
     parsed = parse_results(md)
     assert parsed.total_score == 85

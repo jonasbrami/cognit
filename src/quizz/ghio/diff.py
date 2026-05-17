@@ -11,12 +11,16 @@ def fetch_diff_and_files(
     """Return (unified diff, {path: full_content_at_head})."""
     diff = subprocess.run(
         ["gh", "pr", "diff", pr_url_or_number],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout
 
     files_json = subprocess.run(
         ["gh", "pr", "view", pr_url_or_number, "--json", "files"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout
     paths = [f["path"] for f in json.loads(files_json)["files"]]
 
@@ -33,5 +37,7 @@ def read_file_at_head(path: str) -> str:
     """Default file fetcher: read from local checkout (used in CI after `actions/checkout`)."""
     return subprocess.run(
         ["git", "show", f"HEAD:{path}"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout

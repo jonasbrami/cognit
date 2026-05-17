@@ -1,4 +1,5 @@
 """`quizz generate` — used by the Generator GitHub Action."""
+
 import typer
 
 from quizz.comment.render import render_quiz

@@ -1,8 +1,15 @@
 import pytest
 from pydantic import ValidationError
 from quizz.engine.models import (
-    Quiz, Question, MCQQuestion, MermaidQuestion, OpenQuestion, TrueFalseQuestion,
-    Answers, AnswerEntry, Results, QuestionResult,
+    Quiz,
+    MCQQuestion,
+    MermaidQuestion,
+    OpenQuestion,
+    TrueFalseQuestion,
+    Answers,
+    AnswerEntry,
+    Results,
+    QuestionResult,
 )
 
 
@@ -19,7 +26,8 @@ def test_mcq_answer_must_be_one_of_options():
 
 def test_mermaid_question():
     q = MermaidQuestion(
-        id="q2", prompt="Which diagram?",
+        id="q2",
+        prompt="Which diagram?",
         options={"A": "flowchart LR\nA-->B", "B": "flowchart LR\nB-->A"},
         answer="A",
     )
@@ -38,7 +46,8 @@ def test_tf_question():
 
 def test_quiz_discriminated_union():
     quiz = Quiz(
-        version="1", pr_number=42,
+        version="1",
+        pr_number=42,
         questions=[
             MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A"),
             OpenQuestion(id="q3", prompt="?", rubric="r"),
@@ -54,7 +63,8 @@ def test_quiz_discriminated_union():
 def test_answers_results():
     a = Answers(pr_number=42, entries=[AnswerEntry(question_id="q1", value="A")])
     r = Results(
-        pr_number=42, total_score=80,
+        pr_number=42,
+        total_score=80,
         per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")],
     )
     assert a.entries[0].value == "A"
@@ -64,7 +74,8 @@ def test_answers_results():
 def test_mermaid_answer_must_be_one_of_options():
     with pytest.raises(ValidationError):
         MermaidQuestion(
-            id="q2", prompt="?",
+            id="q2",
+            prompt="?",
             options={"A": "flowchart LR\nA-->B", "B": "flowchart LR\nB-->A"},
             answer="Z",
         )

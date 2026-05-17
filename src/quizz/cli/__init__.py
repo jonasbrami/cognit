@@ -34,8 +34,15 @@ def generate_cmd(
 ) -> None:
     """Generate a quiz on a PR (used by the GitHub Action)."""
     import quizz.cli.generate as _gen
-    _gen.run(pr, post=post, dry_run=dry_run, model=model,
-             min_diff_lines=min_diff_lines, max_diff_lines=max_diff_lines)
+
+    _gen.run(
+        pr,
+        post=post,
+        dry_run=dry_run,
+        model=model,
+        min_diff_lines=min_diff_lines,
+        max_diff_lines=max_diff_lines,
+    )
 
 
 @app.command()

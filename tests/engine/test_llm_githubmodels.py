@@ -17,16 +17,29 @@ def test_generate_quiz_hits_models_endpoint(monkeypatch):
         return_value=httpx.Response(
             200,
             json={
-                "id": "x", "object": "chat.completion", "created": 0,
+                "id": "x",
+                "object": "chat.completion",
+                "created": 0,
                 "model": "gpt-4o-mini",
-                "choices": [{"index": 0, "message": {"role": "assistant", "content": canned.model_dump_json()}, "finish_reason": "stop"}],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": canned.model_dump_json()},
+                        "finish_reason": "stop",
+                    }
+                ],
             },
         )
     )
     llm = GitHubModelsLLM()
-    out = llm.generate_quiz(GenerateRequest(
-        diff="x", pr_title="t", pr_body="b", files={},
-    ))
+    out = llm.generate_quiz(
+        GenerateRequest(
+            diff="x",
+            pr_title="t",
+            pr_body="b",
+            files={},
+        )
+    )
     assert route.called
     assert out == canned
 
@@ -38,9 +51,20 @@ def test_grade_open_returns_score_and_feedback(monkeypatch):
         return_value=httpx.Response(
             200,
             json={
-                "id": "x", "object": "chat.completion", "created": 0,
+                "id": "x",
+                "object": "chat.completion",
+                "created": 0,
                 "model": "gpt-4o-mini",
-                "choices": [{"index": 0, "message": {"role": "assistant", "content": '{"score": 85, "feedback": "good"}'}, "finish_reason": "stop"}],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": '{"score": 85, "feedback": "good"}',
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
             },
         )
     )

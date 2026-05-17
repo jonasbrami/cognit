@@ -1,6 +1,10 @@
 from quizz.engine.models import (
-    Quiz, Answers, Results,
-    MCQQuestion, MermaidQuestion, OpenQuestion, TrueFalseQuestion,
+    Quiz,
+    Answers,
+    Results,
+    MCQQuestion,
+    MermaidQuestion,
+    TrueFalseQuestion,
 )
 
 _MARKER_QUIZ = "<!-- quizz:quiz v1 -->"
@@ -9,7 +13,13 @@ _MARKER_RESULTS = "<!-- quizz:results v1 -->"
 
 
 def render_quiz(quiz: Quiz) -> str:
-    parts: list[str] = [_MARKER_QUIZ, "## Quiz on your PR", "", "Take it: `quizz take` or scroll down.", ""]
+    parts: list[str] = [
+        _MARKER_QUIZ,
+        "## Quiz on your PR",
+        "",
+        "Take it: `quizz take` or scroll down.",
+        "",
+    ]
     for i, q in enumerate(quiz.questions, 1):
         parts.append(f"### Question {i} — {q.type}")
         parts.append(q.prompt)
@@ -47,7 +57,13 @@ def render_answers(ans: Answers, deterministic_score: int) -> str:
 
 
 def render_results(res: Results) -> str:
-    lines: list[str] = [_MARKER_RESULTS, "## Quiz results", "", f"**Total: {res.total_score}%**", ""]
+    lines: list[str] = [
+        _MARKER_RESULTS,
+        "## Quiz results",
+        "",
+        f"**Total: {res.total_score}%**",
+        "",
+    ]
     for r in res.per_question:
         icon = "✅" if r.correct else "❌"
         lines.append(f"- {icon} `{r.question_id}` — {r.score}%")

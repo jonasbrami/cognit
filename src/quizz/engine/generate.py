@@ -18,15 +18,21 @@ def generate_quiz(
     max_mermaid_retries: int = 2,
 ) -> Quiz:
     req = GenerateRequest(
-        diff=diff, pr_title=pr_title, pr_body=pr_body, files=files,
+        diff=diff,
+        pr_title=pr_title,
+        pr_body=pr_body,
+        files=files,
     )
     quiz = llm.generate_quiz(req)
     quiz = Quiz(version="1", pr_number=pr_number, questions=quiz.questions)
 
     for attempt in range(max_mermaid_retries + 1):
-        bad = [q for q in quiz.questions
-               if isinstance(q, MermaidQuestion)
-               and not all(_validate_mermaid(src) for src in q.options.values())]
+        bad = [
+            q
+            for q in quiz.questions
+            if isinstance(q, MermaidQuestion)
+            and not all(_validate_mermaid(src) for src in q.options.values())
+        ]
         if not bad:
             return quiz
         if attempt < max_mermaid_retries:

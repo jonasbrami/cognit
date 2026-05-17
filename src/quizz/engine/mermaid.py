@@ -25,6 +25,8 @@ def is_valid_mermaid(source: str, *, strict: bool = False) -> bool:
         inp.write_text(source)
         result = subprocess.run(
             [mmdc, "-i", str(inp), "-o", str(out)],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         return result.returncode == 0

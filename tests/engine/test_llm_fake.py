@@ -16,7 +16,9 @@ def test_fake_returns_canned_quiz():
 def test_fake_grades_open_question():
     llm = FakeLLM(canned_open_score=75, canned_open_feedback="ok")
     score, fb = llm.grade_open(
-        question_prompt="why?", rubric="r", answer="because",
+        question_prompt="why?",
+        rubric="r",
+        answer="because",
     )
     assert score == 75
     assert fb == "ok"

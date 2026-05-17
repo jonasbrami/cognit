@@ -8,16 +8,22 @@ runner = CliRunner()
 
 
 def test_generate_dry_run_prints_markdown(monkeypatch):
-    canned = Quiz(pr_number=42, questions=[
-        MCQQuestion(id="q1", prompt="why?", options=["A","B"], answer="A"),
-    ])
+    canned = Quiz(
+        pr_number=42,
+        questions=[
+            MCQQuestion(id="q1", prompt="why?", options=["A", "B"], answer="A"),
+        ],
+    )
     monkeypatch.setattr(
         "quizz.cli.generate.fetch_pr_info",
         lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
         "quizz.cli.generate.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("diffstr\n" * 100, {}),  # 100 lines, above default min
+        lambda pr, fetch_file_contents=None: (
+            "diffstr\n" * 100,
+            {},
+        ),  # 100 lines, above default min
     )
     monkeypatch.setattr(
         "quizz.cli.generate._make_llm",

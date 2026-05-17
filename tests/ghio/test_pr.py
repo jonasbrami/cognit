@@ -1,7 +1,6 @@
 import json
 import os
 import stat
-from pathlib import Path
 import pytest
 from quizz.ghio.pr import fetch_pr_info, PRInfo
 

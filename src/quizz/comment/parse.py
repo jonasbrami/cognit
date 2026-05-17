@@ -34,10 +34,12 @@ def parse_results(md: str) -> Results:
     for line in md.splitlines():
         m2 = re.match(r"- (✅|❌) `([^`]+)` — (\d+)%", line)
         if m2:
-            per.append(QuestionResult(
-                question_id=m2.group(2),
-                correct=m2.group(1) == "✅",
-                score=int(m2.group(3)),
-                feedback="",
-            ))
+            per.append(
+                QuestionResult(
+                    question_id=m2.group(2),
+                    correct=m2.group(1) == "✅",
+                    score=int(m2.group(3)),
+                    feedback="",
+                )
+            )
     return Results(pr_number=0, total_score=total, per_question=per)

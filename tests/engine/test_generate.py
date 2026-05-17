@@ -11,17 +11,23 @@ def test_generate_returns_quiz_via_llm():
     canned = Quiz(
         pr_number=1,
         questions=[
-            MCQQuestion(id="q1", prompt="why lock?", options=["safety","speed"], answer="safety"),
+            MCQQuestion(id="q1", prompt="why lock?", options=["safety", "speed"], answer="safety"),
             MermaidQuestion(
-                id="q2", prompt="which flow?",
-                options={"A": "flowchart LR\nA-->B", "B": "flowchart LR\nB-->A"}, answer="A",
+                id="q2",
+                prompt="which flow?",
+                options={"A": "flowchart LR\nA-->B", "B": "flowchart LR\nB-->A"},
+                answer="A",
             ),
             OpenQuestion(id="q3", prompt="rationale?", rubric="thread safety"),
         ],
     )
     out = generate_quiz(
-        diff=diff, pr_title="add lock", pr_body="", files={"cache.py": "..."},
-        pr_number=1, llm=FakeLLM(canned_quiz=canned),
+        diff=diff,
+        pr_title="add lock",
+        pr_body="",
+        files={"cache.py": "..."},
+        pr_number=1,
+        llm=FakeLLM(canned_quiz=canned),
     )
     assert out == canned
 
@@ -33,14 +39,21 @@ def test_generate_drops_invalid_mermaid(monkeypatch):
         pr_number=1,
         questions=[
             MermaidQuestion(
-                id="q1", prompt="?",
-                options={"A": "bad", "B": "bad"}, answer="A",
+                id="q1",
+                prompt="?",
+                options={"A": "bad", "B": "bad"},
+                answer="A",
             ),
-            MCQQuestion(id="q2", prompt="?", options=["x","y"], answer="x"),
+            MCQQuestion(id="q2", prompt="?", options=["x", "y"], answer="x"),
         ],
     )
     out = generate_quiz(
-        diff="x", pr_title="t", pr_body="", files={},
-        pr_number=1, llm=FakeLLM(canned_quiz=canned), max_mermaid_retries=0,
+        diff="x",
+        pr_title="t",
+        pr_body="",
+        files={},
+        pr_number=1,
+        llm=FakeLLM(canned_quiz=canned),
+        max_mermaid_retries=0,
     )
     assert not any(q.type == "mermaid" for q in out.questions)

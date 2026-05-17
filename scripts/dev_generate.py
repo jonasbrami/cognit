@@ -7,6 +7,7 @@ Reads a unified diff from the given path, generates a quiz against GitHub Models
 and prints the resulting Quiz JSON to stdout. No PR is fetched; the diff is the
 entire context.
 """
+
 import sys
 from pathlib import Path
 
