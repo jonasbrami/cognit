@@ -44,13 +44,32 @@ class GitHubModelsLLM:
             files=files_blob,
             question_mix=req.question_mix,
         )
-        resp = self._client.chat.completions.create(
-            model=req.model,
-            response_format={"type": "json_object"},
-            messages=[{"role": "user", "content": prompt}],
-        )
-        content = resp.choices[0].message.content or "{}"
-        return Quiz.model_validate_json(content)
+        # Try strict structured output first (OpenAI's `parse` API enforces the Pydantic schema).
+        # GitHub Models may not support all schema features — fall back to free-form JSON on failure.
+        try:
+            parsed = self._client.beta.chat.completions.parse(
+                model=req.model,
+                response_format=Quiz,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            result = parsed.choices[0].message.parsed
+            if result is None:
+                raise ValueError("structured-output parsing returned None")
+            return result
+        except Exception as e:
+            # Fall back to free-form JSON + manual validation. Print raw content for diagnosis.
+            print(f"[quizz] strict parse failed ({type(e).__name__}: {e}); falling back to json_object mode", flush=True)
+            resp = self._client.chat.completions.create(
+                model=req.model,
+                response_format={"type": "json_object"},
+                messages=[{"role": "user", "content": prompt}],
+            )
+            content = resp.choices[0].message.content or "{}"
+            try:
+                return Quiz.model_validate_json(content)
+            except Exception:
+                print(f"[quizz] LLM raw response:\n{content}", flush=True)
+                raise
 
     def grade_open(self, question_prompt: str, rubric: str, answer: str) -> tuple[int, str]:
         prompt = _load_prompt("grade_open.txt").format(
