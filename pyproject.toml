@@ -17,7 +17,15 @@ dependencies = [
 quizz = "quizz.cli:app"
 
 [dependency-groups]
-dev = ["pytest", "pytest-asyncio", "respx", "syrupy", "ruff", "mypy"]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "respx",
+    "syrupy",
+    "ruff",
+    "mypy",
+    "pillow>=12.2.0",
+]
 
 [build-system]
 requires = ["hatchling"]

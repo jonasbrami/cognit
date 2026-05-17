@@ -58,7 +58,10 @@ class GitHubModelsLLM:
             return result
         except Exception as e:
             # Fall back to free-form JSON + manual validation. Print raw content for diagnosis.
-            print(f"[quizz] strict parse failed ({type(e).__name__}: {e}); falling back to json_object mode", flush=True)
+            print(
+                f"[quizz] strict parse failed ({type(e).__name__}: {e}); falling back to json_object mode",
+                flush=True,
+            )
             resp = self._client.chat.completions.create(
                 model=req.model,
                 response_format={"type": "json_object"},
