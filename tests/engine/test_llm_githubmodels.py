@@ -1,3 +1,4 @@
+import pytest
 import respx
 import httpx
 from quizz.engine.llm import GenerateRequest
@@ -47,3 +48,9 @@ def test_grade_open_returns_score_and_feedback(monkeypatch):
     score, fb = llm.grade_open(question_prompt="why?", rubric="r", answer="x")
     assert score == 85
     assert fb == "good"
+
+
+def test_missing_token_raises_useful_error(monkeypatch):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    with pytest.raises(RuntimeError, match="GITHUB_TOKEN"):
+        GitHubModelsLLM()

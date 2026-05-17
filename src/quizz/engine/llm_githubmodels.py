@@ -8,6 +8,13 @@ from quizz.engine.llm import GenerateRequest
 from quizz.engine.models import Quiz
 
 
+def _no_token_error() -> str:
+    raise RuntimeError(
+        "GitHub Models requires GITHUB_TOKEN to be set. "
+        "In Actions: add `permissions: models: read`. Locally: export a PAT with the models scope."
+    )
+
+
 def _load_prompt(name: str) -> str:
     return resources.files("quizz.engine.prompts").joinpath(name).read_text()
 
@@ -20,7 +27,7 @@ class GitHubModelsLLM:
     ) -> None:
         self._client = OpenAI(
             base_url=base_url,
-            api_key=token or os.environ["GITHUB_TOKEN"],
+            api_key=token or os.environ.get("GITHUB_TOKEN") or _no_token_error(),
         )
 
     def generate_quiz(self, req: GenerateRequest) -> Quiz:
