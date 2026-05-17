@@ -1,0 +1,12 @@
+--- a/cache.py
++++ b/cache.py
+@@ -1,5 +1,8 @@
++import threading
++
+ class Cache:
+-    def __init__(self):
+-        self.store = {}
++    def __init__(self, max_size: int = 1000):
++        self.store = {}
++        self.max_size = max_size
++        self.lock = threading.RLock()
