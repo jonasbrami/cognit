@@ -1,2 +1,1 @@
-def hello() -> str:
-    return "Hello from quizz!"
+"""Voluntary PR-author comprehension quiz tool."""
