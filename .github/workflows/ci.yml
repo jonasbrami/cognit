@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --all-extras --dev
+      - name: Lint
+        run: uv run ruff check
+      - name: Format check
+        run: uv run ruff format --check
+      - name: Type check
+        run: uv run mypy src/
+      - name: Test
+        run: uv run pytest -v
+
+  action-smoke:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: Install mermaid-cli
+        run: npm install -g @mermaid-js/mermaid-cli@10
+      - name: Install quizz from source
+        run: uv tool install --from . quizz
+      - name: Verify CLI works
+        run: |
+          quizz --version
+          quizz --help
+          quizz generate --help
+          quizz grade --help
+          quizz take --help
