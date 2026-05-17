@@ -33,7 +33,7 @@ def test_grade_command_posts_results(monkeypatch):
     monkeypatch.setattr("quizz.cli.grade.post_comment", lambda pr, md: posted.append(md))
     monkeypatch.setattr(
         "quizz.cli.grade._make_llm",
-        lambda model: FakeLLM(canned_open_score=85, canned_open_feedback="solid"),
+        lambda model, provider="auto": FakeLLM(canned_open_score=85, canned_open_feedback="solid"),
     )
     result = runner.invoke(app, ["grade", "--pr", "https://github.com/o/r/pull/42"])
     assert result.exit_code == 0, result.stdout
@@ -79,6 +79,6 @@ def test_grade_handles_llm_failure(monkeypatch):
         def grade_open(self, *args):
             raise OpenAIError("simulated grading failure")
 
-    monkeypatch.setattr("quizz.cli.grade._make_llm", lambda model: BoomLLM())
+    monkeypatch.setattr("quizz.cli.grade._make_llm", lambda model, provider="auto": BoomLLM())
     result = runner.invoke(app, ["grade", "--pr", "https://github.com/o/r/pull/42"])
     assert result.exit_code == 1

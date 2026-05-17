@@ -1,5 +1,7 @@
 """`quizz generate` — used by the Generator GitHub Action."""
 
+import os
+
 import typer
 from openai import OpenAIError
 from pydantic import ValidationError
@@ -7,14 +9,21 @@ from pydantic import ValidationError
 from quizz.comment.render import render_quiz
 from quizz.engine.generate import generate_quiz
 from quizz.engine.llm import LLMClient
+from quizz.engine.llm_anthropic import AnthropicLLM
 from quizz.engine.llm_githubmodels import GitHubModelsLLM
 from quizz.ghio.diff import fetch_diff_and_files, read_file_at_head
 from quizz.ghio.pr import fetch_pr_info, post_comment
 
 
-def _make_llm(model: str) -> LLMClient:
-    """Factory hook — monkeypatched in tests to inject FakeLLM."""
-    return GitHubModelsLLM()  # leave as-is; model is passed via GenerateRequest, not LLM ctor
+def _make_llm(model: str, provider: str = "auto") -> LLMClient:
+    """Pick an LLM provider. 'auto' uses Anthropic if ANTHROPIC_API_KEY is set, else GitHub Models."""
+    if provider == "auto":
+        provider = "anthropic" if os.environ.get("ANTHROPIC_API_KEY") else "github"
+    if provider == "anthropic":
+        # If --model wasn't customized from the default, use a Claude default
+        anthropic_model = model if model not in ("gpt-4o-mini", "gpt-4o") else "claude-sonnet-4-6"
+        return AnthropicLLM(model=anthropic_model)
+    return GitHubModelsLLM(model=model)
 
 
 def run(
@@ -24,6 +33,7 @@ def run(
     model: str = "gpt-4o-mini",
     min_diff_lines: int = 50,
     max_diff_lines: int = 2000,
+    provider: str = "auto",
 ) -> None:
     info = fetch_pr_info(pr)
     if "quiz: skip" in info.body.lower():
@@ -44,7 +54,7 @@ def run(
             pr_body=info.body,
             files=files,
             pr_number=info.number,
-            llm=_make_llm(model),
+            llm=_make_llm(model, provider),
             model=model,
         )
     except OpenAIError as e:

@@ -27,7 +27,7 @@ def test_generate_dry_run_prints_markdown(monkeypatch):
     )
     monkeypatch.setattr(
         "quizz.cli.generate._make_llm",
-        lambda model: FakeLLM(canned_quiz=canned),
+        lambda model, provider="auto": FakeLLM(canned_quiz=canned),
     )
     result = runner.invoke(app, ["generate", "--pr", "https://github.com/o/r/pull/42", "--dry-run"])
     assert result.exit_code == 0, result.stdout
@@ -81,6 +81,33 @@ def test_generate_handles_llm_failure(monkeypatch):
         "quizz.cli.generate.fetch_diff_and_files",
         lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
     )
-    monkeypatch.setattr("quizz.cli.generate._make_llm", lambda model: BoomLLM())
+    monkeypatch.setattr("quizz.cli.generate._make_llm", lambda model, provider="auto": BoomLLM())
     result = runner.invoke(app, ["generate", "--pr", "https://github.com/o/r/pull/1", "--dry-run"])
     assert result.exit_code == 1
+
+
+def test_generate_picks_anthropic_when_env_set(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake")
+    monkeypatch.setattr(
+        "quizz.cli.generate.fetch_pr_info",
+        lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
+    )
+    monkeypatch.setattr(
+        "quizz.cli.generate.fetch_diff_and_files",
+        lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
+    )
+    chosen: dict[str, str] = {}
+
+    def fake_make_llm(model: str, provider: str = "auto") -> FakeLLM:
+        chosen["provider"] = provider
+        return FakeLLM(
+            canned_quiz=Quiz(
+                pr_number=1,
+                questions=[MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A")],
+            )
+        )
+
+    monkeypatch.setattr("quizz.cli.generate._make_llm", fake_make_llm)
+    result = runner.invoke(app, ["generate", "--pr", "https://github.com/o/r/pull/1", "--dry-run"])
+    assert result.exit_code == 0
+    assert chosen["provider"] == "auto"  # the flag was 'auto'; resolution happens inside _make_llm

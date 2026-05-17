@@ -36,6 +36,7 @@ def generate_cmd(
     model: str = typer.Option("gpt-4o-mini", "--model"),
     min_diff_lines: int = typer.Option(50, "--min-diff-lines"),
     max_diff_lines: int = typer.Option(2000, "--max-diff-lines"),
+    llm: str = typer.Option("auto", "--llm", help="LLM provider: auto | anthropic | github"),
 ) -> None:
     """Generate a quiz on a PR (used by the GitHub Action)."""
     import quizz.cli.generate as _gen
@@ -47,6 +48,7 @@ def generate_cmd(
         model=model,
         min_diff_lines=min_diff_lines,
         max_diff_lines=max_diff_lines,
+        provider=llm,
     )
 
 
@@ -54,6 +56,7 @@ def generate_cmd(
 def grade_cmd(
     pr: str = typer.Option(..., "--pr"),
     model: str = typer.Option("gpt-4o-mini", "--model"),
+    llm: str = typer.Option("auto", "--llm", help="LLM provider: auto | anthropic | github"),
 ) -> None:
     """Grade submitted answers (used by the GitHub Action)."""
-    _grade.run(pr, model=model)
+    _grade.run(pr, model=model, provider=llm)
