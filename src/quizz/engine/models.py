@@ -70,12 +70,12 @@ class Answers(BaseModel):
 class QuestionResult(BaseModel):
     question_id: str
     correct: bool
-    score: int  # 0..100
+    score: int = Field(ge=0, le=100)  # 0..100
     feedback: str  # "" for deterministic questions
 
 
 class Results(BaseModel):
     version: Literal["1"] = "1"
     pr_number: int
-    total_score: int
+    total_score: int = Field(ge=0, le=100)
     per_question: list[QuestionResult]

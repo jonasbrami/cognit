@@ -59,3 +59,21 @@ def test_answers_results():
     )
     assert a.entries[0].value == "A"
     assert r.total_score == 80
+
+
+def test_mermaid_answer_must_be_one_of_options():
+    with pytest.raises(ValidationError):
+        MermaidQuestion(
+            id="q2", prompt="?",
+            options={"A": "flowchart LR\nA-->B", "B": "flowchart LR\nB-->A"},
+            answer="Z",
+        )
+
+
+def test_score_must_be_in_0_100():
+    with pytest.raises(ValidationError):
+        QuestionResult(question_id="q1", correct=True, score=101, feedback="")
+    with pytest.raises(ValidationError):
+        QuestionResult(question_id="q1", correct=True, score=-1, feedback="")
+    with pytest.raises(ValidationError):
+        Results(pr_number=1, total_score=150, per_question=[])
