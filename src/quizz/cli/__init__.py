@@ -23,10 +23,19 @@ def take() -> None:
     typer.echo("take: not implemented yet")
 
 
-@app.command()
-def generate() -> None:
+@app.command("generate")
+def generate_cmd(
+    pr: str = typer.Option(..., "--pr", help="PR URL or number"),
+    post: bool = typer.Option(False, "--post", help="Post the quiz as a PR comment"),
+    dry_run: bool = typer.Option(False, "--dry-run"),
+    model: str = typer.Option("gpt-4o-mini", "--model"),
+    min_diff_lines: int = typer.Option(50, "--min-diff-lines"),
+    max_diff_lines: int = typer.Option(2000, "--max-diff-lines"),
+) -> None:
     """Generate a quiz on a PR (used by the GitHub Action)."""
-    typer.echo("generate: not implemented yet")
+    import quizz.cli.generate as _gen
+    _gen.run(pr, post=post, dry_run=dry_run, model=model,
+             min_diff_lines=min_diff_lines, max_diff_lines=max_diff_lines)
 
 
 @app.command()
