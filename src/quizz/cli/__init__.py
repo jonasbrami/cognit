@@ -38,7 +38,7 @@ def generate_cmd(
     max_diff_lines: int = typer.Option(2000, "--max-diff-lines"),
     llm: str = typer.Option("auto", "--llm", help="LLM provider: auto | anthropic | github"),
 ) -> None:
-    """Generate a quiz on a PR (used by the GitHub Action)."""
+    """Generate a quiz comment on a PR by calling an LLM with the diff."""
     import quizz.cli.generate as _gen
 
     _gen.run(
@@ -58,5 +58,5 @@ def grade_cmd(
     model: str = typer.Option("gpt-4o-mini", "--model"),
     llm: str = typer.Option("auto", "--llm", help="LLM provider: auto | anthropic | github"),
 ) -> None:
-    """Grade submitted answers (used by the GitHub Action)."""
+    """Grade submitted answers and post a results comment to the PR."""
     _grade.run(pr, model=model, provider=llm)

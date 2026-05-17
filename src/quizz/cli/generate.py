@@ -1,4 +1,4 @@
-"""`quizz generate` — used by the Generator GitHub Action."""
+"""`quizz generate` — generate a quiz on a PR by calling an LLM with the diff."""
 
 import os
 from pathlib import Path

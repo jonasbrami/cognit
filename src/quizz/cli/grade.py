@@ -1,4 +1,4 @@
-"""`quizz grade` — used by the Grader GitHub Action."""
+"""`quizz grade` — LLM-grade open question + post results comment to PR."""
 
 import os
 from pathlib import Path
