@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Quiz — PR #__PR__</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <h1>Quiz for <a href="__PR_URL__">PR #__PR__</a></h1>
+    <p>Take your time. Failing doesn't block merge — the point is to surface the gap between what you think the code does and what it actually does.</p>
+  </header>
+  <main id="quiz"></main>
+  <button id="submit">Submit answers</button>
+  <pre id="result"></pre>
+  <script type="module">
+    window.QUIZ = __QUIZ_JSON__;
+    window.PR_URL = "__PR_URL__";
+  </script>
+  <script type="module" src="/static/quiz.js"></script>
+</body>
+</html>

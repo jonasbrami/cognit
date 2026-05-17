@@ -1,0 +1,24 @@
+:root { color-scheme: light dark; }
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  max-width: 820px; margin: 2rem auto; padding: 0 1rem;
+  line-height: 1.5;
+}
+header h1 { margin-bottom: 0.25rem; }
+header p { color: #666; margin-top: 0; }
+section {
+  border: 1px solid #ddd;
+  padding: 1rem 1.25rem;
+  margin: 1.5rem 0;
+  border-radius: 8px;
+}
+section h3 { margin-top: 0; font-size: 0.9rem; color: #888; font-weight: normal; }
+section p { font-weight: 500; margin-top: 0.25rem; }
+label { display: block; margin: 0.5rem 0; cursor: pointer; }
+label.mermaid-option { border: 1px solid #eee; padding: 0.75rem; border-radius: 6px; margin: 0.75rem 0; }
+label.mermaid-option:has(input:checked) { border-color: #4a9; background: rgba(74,153,124,0.05); }
+.mermaid { background: #f6f8fa; padding: 0.75rem; margin-top: 0.5rem; border-radius: 4px; }
+textarea { width: 100%; padding: 0.5rem; border: 1px solid #ccc; border-radius: 4px; font: inherit; }
+button { padding: 0.7rem 1.5rem; font-size: 1rem; border: none; background: #2d7d4d; color: white; border-radius: 6px; cursor: pointer; }
+button:hover { background: #225e3a; }
+pre { background: #f6f8fa; padding: 1rem; border-radius: 4px; overflow-x: auto; }
