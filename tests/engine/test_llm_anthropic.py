@@ -64,7 +64,55 @@ def test_generate_quiz_via_tool_use(monkeypatch: pytest.MonkeyPatch) -> None:
     llm = AnthropicLLM()
     out = llm.generate_quiz(GenerateRequest(diff="x", pr_title="t", pr_body="b", files={}))
     assert route.called
-    assert out == canned
+    # The adapter coerces pr_number to 0 because the model fills the schema-required field
+    # with a placeholder; the caller (engine.generate_quiz) overwrites pr_number with the
+    # real value immediately, so we don't trust whatever the model returned.
+    assert out.pr_number == 0
+    assert out.questions == canned.questions
+
+
+@respx.mock
+def test_generate_quiz_coerces_bad_pr_number(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The model sometimes fills pr_number with placeholder strings like '<UNKNOWN>'.
+    The adapter must not crash; pr_number is overwritten downstream anyway."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    # Build a response body where pr_number is a string the schema would reject
+    bad_body = {
+        "id": "msg_test",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-haiku-4-5",
+        "content": [
+            {
+                "type": "tool_use",
+                "id": "tu_test",
+                "name": _QUIZ_TOOL_NAME,
+                "input": {
+                    "version": "1",
+                    "pr_number": "<UNKNOWN>",  # the bug case
+                    "questions": [
+                        {
+                            "type": "mcq",
+                            "id": "q1",
+                            "prompt": "?",
+                            "options": ["A", "B"],
+                            "answer": "A",
+                        }
+                    ],
+                },
+            }
+        ],
+        "stop_reason": "tool_use",
+        "stop_sequence": None,
+        "usage": {"input_tokens": 100, "output_tokens": 50},
+    }
+    respx.post("https://api.anthropic.com/v1/messages").mock(
+        return_value=httpx.Response(200, json=bad_body)
+    )
+    llm = AnthropicLLM()
+    out = llm.generate_quiz(GenerateRequest(diff="x", pr_title="t", pr_body="b", files={}))
+    assert out.pr_number == 0
+    assert len(out.questions) == 1
 
 
 @respx.mock

@@ -51,23 +51,23 @@ Three CLI subcommands, one PR thread:
 │  `quizz take` (CLI)      │                │  PR (via gh CLI)       │
 │  ─ reads quiz comment    │ ◄────────────► │  read & write          │
 │  ─ opens browser UI      │                │  comments              │
-│  ─ grades deterministic  │                └────────────────────────┘
-│  ─ posts answers comment │                            │
-└──────────────────────────┘                            │
-                                                        ▼
+│  ─ grades everything     │                └────────────────────────┘
+│    in-session (det + LLM)│                            ▲
+│  ─ shows results inline  │                            │
+└─────────────┬────────────┘                            │
+              │                                         │
+              │ 3. user clicks "Publish results to PR"  │
+              │    (opt-in — nothing posted on submit)  │
+              ▼                                         │
+        POST /publish ──────────────────────────────────┘
                                               ┌────────────────────────┐
-                                              │  PR comment (answers)  │
-                                              │  ─ user's responses    │
-                                              │  ─ deterministic score │
+                                              │  PR comment (results)  │
+                                              │  ─ total + per-Q score │
+                                              │  ─ open-Q LLM feedback │
                                               └────────────────────────┘
-                                                        │
-                            3. author runs `quizz grade`│
-                                                        ▼
-┌──────────────────────────┐
-│  `quizz grade` (CLI)     │ ──────────────►  LLM-grades open question
-│  (CLI, local)            │                  posts results comment
-└──────────────────────────┘
 ```
+
+(`quizz grade` still exists as a separate CLI for retroactive grading — reads an existing answers comment and posts a results comment — but is no longer part of the primary flow. Most users go from `quizz take` straight to the Publish button.)
 
 Everything that needs to be persisted is a PR comment. No state branches, no workflow artifacts crossing runs, no external storage.
 
@@ -79,38 +79,41 @@ Everything that needs to be persisted is a PR comment. No state branches, no wor
 - Skips if diff < 50 lines or > 2000 lines, or if PR body contains `quiz: skip`.
 - Steps:
   1. Fetch PR title, body via `gh pr view`; diff via `gh pr diff`; touched-file contents via `git show HEAD:<path>`.
-  2. Call the configured LLM provider (Anthropic via tool use by default; Claude Code OAuth or `ANTHROPIC_API_KEY`) with a prompt that returns 5 questions: 2 MCQ + 1 mermaid (reference + 3 plausible-but-wrong variants in uniform style) + 1 open question + 1 true/false.
+  2. Call the configured LLM provider (Anthropic via tool use by default; Claude Code OAuth or `ANTHROPIC_API_KEY`) with a prompt that asks it to **decide both the count and the type-mix** based on diff size and complexity. A typo fix gets 2–3 probes; a 500-line refactor with new abstractions might warrant 8 or more. Question types: `mcq` (facts/invariants), `mermaid` (control or data flow — generated as 1 correct + 3 plausible-but-wrong variants in uniform style), `open` (LLM-graded against a rubric), `tf` (subtle behavioral claims).
   3. Validate mermaid diagrams with `@mermaid-js/mermaid-cli` parse pass (skip silently if not installed); retry the whole generation on failure (max 2 retries); drop mermaid Q as last resort.
   4. Post-process mermaid options to neutral A/B/C/D labels (prevents accidental answer leak from semantic labels like `correct`/`wrong_1`).
   5. Render the markdown comment and post it to the PR via `gh pr comment` (when `--post`).
 
 ### `quizz take` CLI
 
-- Auth: uses local `gh auth login`. No additional tokens.
-- Invocation: `quizz take` (auto-detects PR from current branch) or `quizz take --pr <url-or-number>`.
+- Auth: uses local `gh auth login` for PR I/O. LLM auth via Claude Code OAuth (`~/.claude/.credentials.json`) or `ANTHROPIC_API_KEY`. The `--llm <provider>` flag picks `anthropic` (default when key is present) or `github` (GitHub Models).
+- Invocation: `quizz take [--pr <url-or-number>] [--model <name>] [--llm auto|anthropic|github]`. Auto-detects PR from current branch.
 - Steps:
   1. Find the latest `<!-- quizz:quiz v1 -->` comment in the target PR via `gh pr view --json comments`.
   2. Parse the embedded JSON state.
   3. Spin up a local HTTP server (FastAPI + uvicorn, 127.0.0.1 only, random unused port), open the URL in the default browser.
-  4. Browser renders the quiz with `mermaid.js` (real diagram rendering, not GitHub's markdown view), real form controls for MCQ, a textarea for the open question.
-  5. On submit:
-     - Grade MCQ + mermaid + true/false deterministically against the answer key (which is in the JSON state, in plaintext — voluntary system).
-     - Show the deterministic score in the browser immediately.
-     - Post an answers comment to the PR via `gh pr comment` with the user's responses + the deterministic score.
-     - Poll the local `/results` endpoint, which checks for the latest `<!-- quizz:results v1 -->` comment on the PR. When the author later runs `quizz grade`, the result lands in that comment and the browser updates.
-- Stays alive until user closes the browser tab or hits Ctrl-C.
+  4. Browser renders the quiz with `mermaid.js` (real diagram rendering, not GitHub's markdown view), real form controls for MCQ, a textarea for the open question. UI aesthetic: editorial paper-and-ink, Fraunces serif headline with a rust accent, blueprint-styled mermaid options, margin-rail ordinals (i, ii, iii…) per question. Designed to feel like a printed diagnostic, not a SaaS form.
+  5. On submit (POST `/submit`):
+     - Grade MCQ + mermaid + T/F deterministically against the answer key (which is in the JSON state, in plaintext — voluntary system).
+     - LLM-grade the open question in-session (same provider as `--llm`).
+     - Return the full `Results` JSON to the browser. **Nothing is posted to the PR yet.**
+     - Browser renders the result panel inline: total score, per-question breakdown, open-question feedback in a blockquote.
+  6. On clicking "Publish results to PR" (POST `/publish`):
+     - Server posts the results comment via `gh pr comment`. Confirms via status text in the UI.
+- Stays alive until the user closes the browser tab or hits Ctrl-C.
+
+**Publishing is opt-in.** Solo devs can practice in private without leaving a trail; users who want a record click the button.
 
 **Who can run `quizz take`:** anyone with `gh` access to the repo. The CLI doesn't gate by PR-author identity; downstream consumers (you, the human) decide who runs the local CLI.
 
-### `quizz grade` CLI
+### `quizz grade` CLI (retroactive)
 
-- Invocation: `quizz grade --pr <url-or-number>`. Run manually after submitting answers in `quizz take`.
+- Invocation: `quizz grade --pr <url-or-number> [--llm auto|anthropic|github] [--model <name>]`. Not part of the primary flow — `quizz take` now does in-session grading + opt-in publishing. Kept around for retroactive use cases (regrade an existing answers comment with a different model, or for CI-style scripts).
 - Steps:
   1. Locate the latest quiz comment (`<!-- quizz:quiz v1 -->`) and answers comment (`<!-- quizz:answers v1 -->`) on the PR.
   2. Parse both.
-  3. Re-grade MCQ + mermaid + T/F locally (cheap, deterministic) + call the LLM with `(question_prompt, rubric, user_answer)` to grade the open question (0–100 + feedback).
-  4. Render a results comment with `<!-- quizz:results v1 -->` marker: total score, per-question breakdown, the open-question feedback, and embedded JSON state.
-  5. Post to the PR via `gh pr comment`.
+  3. Re-grade MCQ + mermaid + T/F locally + call the LLM to grade the open question.
+  4. Render a results comment with `<!-- quizz:results v1 -->` marker and post via `gh pr comment`.
 
 ## Quiz comment format
 
@@ -118,7 +121,7 @@ Markdown for humans, JSON code block for the CLI. The answer key is in plaintext
 
 ```markdown
 <!-- quizz:quiz v1 -->
-## Quiz on your PR (5 questions)
+## Quiz on your PR
 
 Take it in your terminal: `quizz take` (or `quizz take <this PR URL>`).
 Or scroll down and answer in your head — see what you got wrong at the bottom.
@@ -182,13 +185,13 @@ Single workflow input file with sensible defaults. Tunable knobs:
 
 | Knob | Default |
 |---|---|
-| `llm-model` | `gpt-4o-mini` (via GitHub Models) |
-| `min-diff-lines` | 50 |
-| `max-diff-lines` | 2000 |
+| `--llm` provider | `auto` (Anthropic if API key or Claude Code OAuth is available, else GitHub Models) |
+| `--model` | `gpt-4o-mini` when provider = github; `claude-sonnet-4-6` when provider = anthropic |
+| `--min-diff-lines` | 50 (skip tiny PRs) |
+| `--max-diff-lines` | 2000 (skip huge PRs) |
 | `excludes` | `*-lock.*`, `*.lock`, `*.map`, `*.pb.*`, `*_pb2.py`, `*.generated.*`, `*.auto.*`, `dist/**`, `build/**` |
-| `question-mix` | `2 mcq, 1 mermaid, 1 open, 1 tf` |
+| question count | **LLM-decided.** Prompt instructs the model to pick the count and type-mix based on diff complexity. Typical range 2–10. |
 | `context-strategy` | `diff + pr-body + touched-files-full` |
-| `regen-on-sync-threshold` | 20% (regenerate when the changed-line set differs by more than this fraction from the previous quiz's diff) |
 
 PR-level escape hatches: `quiz: skip` in PR description suppresses generation entirely.
 
@@ -206,11 +209,11 @@ PR-level escape hatches: `quiz: skip` in PR description suppresses generation en
 
 ## Testing strategy
 
-- **Unit tests** for the question generator: fixture diffs → assert valid JSON schema, valid mermaid, correct question mix.
-- **Unit tests** for grading: fixture quiz JSON + fixture answers → assert correct deterministic scoring.
-- **Unit tests** for the LLM adapters using `respx` to mock `api.anthropic.com` and the OpenAI-compatible GitHub Models endpoint.
-- **Unit tests** for the FastAPI server using `TestClient` (covers `/`, `/static/*`, `/submit`, `/results`).
-- **Headless-Chrome screenshot smoke** (manual, ad hoc): `google-chrome --headless --screenshot` against `quizz take` to catch JS/asset regressions.
+- **Unit tests** for the question generator: fixture diffs → assert valid JSON schema, valid mermaid, mermaid label neutralization.
+- **Unit tests** for grading: fixture quiz JSON + fixture answers → assert correct deterministic + LLM-graded scoring.
+- **Unit tests** for the LLM adapters using `respx` to mock `api.anthropic.com` and the OpenAI-compatible GitHub Models endpoint. Includes a regression test for the bug where the model fills the schema-required `pr_number` with a placeholder string — the adapter coerces it to 0 since the caller overwrites it with the real value immediately.
+- **Unit tests** for the FastAPI server using `TestClient` (covers `/`, `/static/*`, `/submit`, `/publish`).
+- **Playwright end-to-end** (manual, ad hoc): drive the browser through fill → submit → publish against the live PR; screenshot every state. The headless-Chrome `--screenshot` flag is a faster alternative for visual smoke.
 - **CI** (`.github/workflows/ci.yml`): on every push, run `ruff check`, `ruff format --check`, `mypy --strict`, `pytest`, and a CLI install smoke (`quizz --help` etc.).
 
 ## Non-goals (for v1)

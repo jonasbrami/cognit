@@ -105,7 +105,6 @@ class AnthropicLLM:
             pr_body=req.pr_body,
             diff=req.diff,
             files=files_blob,
-            question_mix=req.question_mix,
         )
 
         # Anthropic tool: input_schema = Quiz's JSON schema. Claude must call this tool.
@@ -123,10 +122,16 @@ class AnthropicLLM:
             messages=[{"role": "user", "content": user_message}],
         )
 
-        # Extract the tool_use block from the response
+        # Extract the tool_use block from the response.
         for block in resp.content:
             if isinstance(block, ToolUseBlock) and block.name == _QUIZ_TOOL_NAME:
                 data = cast(dict[str, Any], block.input)
+                # The model often fills `pr_number` with a placeholder string (e.g. "<UNKNOWN>")
+                # because the schema requires it but the prompt doesn't reveal it. The caller
+                # in engine/generate.py overwrites pr_number with the real value immediately
+                # after this returns, so the value here is throwaway — coerce to 0 to satisfy
+                # Pydantic's int validator regardless of what the model put there.
+                data["pr_number"] = 0
                 return Quiz.model_validate(data)
 
         raise RuntimeError("Anthropic did not return a tool_use block; cannot extract quiz")

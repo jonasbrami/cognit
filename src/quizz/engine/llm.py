@@ -10,7 +10,6 @@ class GenerateRequest(BaseModel):
     pr_title: str
     pr_body: str
     files: dict[str, str]  # path -> full content
-    question_mix: dict[str, int] = {"mcq": 2, "mermaid": 1, "open": 1, "tf": 1}
     model: str = "gpt-4o-mini"
 
 

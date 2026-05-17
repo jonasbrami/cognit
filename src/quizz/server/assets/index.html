@@ -2,17 +2,53 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Quiz — PR #__PR__</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,300..900,0..100&family=JetBrains+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,300..600&display=swap">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <header>
-    <h1>Quiz for <a href="__PR_URL__">PR #__PR__</a></h1>
-    <p>Take your time. Failing doesn't block merge — the point is to surface the gap between what you think the code does and what it actually does.</p>
-  </header>
-  <main id="quiz"></main>
-  <button id="submit">Submit answers</button>
-  <pre id="result"></pre>
+  <div class="paper">
+    <header class="masthead">
+      <div class="masthead__rule" aria-hidden="true"></div>
+      <div class="masthead__meta">
+        <span class="masthead__kicker">A diagnostic in five parts</span>
+        <span class="masthead__pr"><a href="__PR_URL__">pull request <em>№</em> __PR__</a></span>
+      </div>
+      <h1 class="masthead__title">
+        <span class="masthead__title-line">Do you actually know</span>
+        <span class="masthead__title-line masthead__title-line--accent">what your code does?</span>
+      </h1>
+      <p class="masthead__lede">
+        Take your time. A poor score does not block your merge — this exists to reveal
+        the distance between what you <em>think</em> the code does and what the code
+        <em>actually</em> does. The questions are the diagnostic; the feedback is the medicine.
+      </p>
+      <div class="masthead__rule masthead__rule--bottom" aria-hidden="true"></div>
+    </header>
+
+    <main id="quiz" class="quiz"></main>
+
+    <footer class="commit-bar">
+      <div class="commit-bar__inner">
+        <button id="submit" class="commit-bar__submit" type="button">
+          <span class="commit-bar__submit-label">Submit answers</span>
+          <span class="commit-bar__submit-arrow" aria-hidden="true">&rarr;</span>
+        </button>
+        <span class="commit-bar__hint">No penalty for failing. The whole point is to find what you didn't know.</span>
+      </div>
+    </footer>
+
+    <section id="result" class="result" aria-live="polite"></section>
+
+    <div class="colophon">
+      <span class="colophon__mark">&#x2767;</span>
+      <span>quizz &middot; a tool for the developer who wants to be honest with themselves</span>
+    </div>
+  </div>
+
   <!-- mermaid UMD bundle: registers window.mermaid -->
   <script src="/static/mermaid.min.js"></script>
   <script>

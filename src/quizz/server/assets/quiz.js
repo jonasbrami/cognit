@@ -1,98 +1,218 @@
-// mermaid is loaded via UMD script tag in index.html and attached to window.mermaid.
-window.mermaid.initialize({ startOnLoad: false, securityLevel: "loose" });
+// quizz front-end — editorial diagnostic UI.
+// Contracts (must hold):
+//   - reads window.QUIZ (shape documented in server/app.py)
+//   - POSTs to /submit, then /publish (opt-in)
+//   - mermaid is loaded via UMD script tag in index.html and attached to window.mermaid
+//   - diagrams must live in elements with class="mermaid" and textContent (not innerHTML) set
+
+window.mermaid.initialize({
+  startOnLoad: false,
+  securityLevel: "loose",
+  fontFamily:
+    '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace',
+  themeVariables: {
+    background: "transparent",
+    primaryColor: "#f5efe4",
+    primaryBorderColor: "#1f3a5f",
+    primaryTextColor: "#1a1612",
+    lineColor: "#1f3a5f",
+    secondaryColor: "#e3ecf2",
+    tertiaryColor: "#e3ecf2",
+    fontSize: "13px",
+  },
+});
 
 const quiz = window.QUIZ;
 const root = document.getElementById("quiz");
 const submitBtn = document.getElementById("submit");
+const submitLabel = submitBtn.querySelector(".commit-bar__submit-label");
 const resultEl = document.getElementById("result");
 
 // Cached so the Publish button can re-send without re-grading.
 let lastResults = null;
 
+// Small DOM helper. `text` sets textContent; `html` is intentionally absent.
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
     if (k === "class") node.className = v;
     else if (k === "for") node.htmlFor = v;
     else if (k === "text") node.textContent = v;
     else node.setAttribute(k, v);
   }
   for (const child of children) {
-    if (child) node.appendChild(child);
+    if (child == null || child === false) continue;
+    if (typeof child === "string") node.appendChild(document.createTextNode(child));
+    else node.appendChild(child);
   }
   return node;
 }
 
-function radio(name, value) {
-  const i = document.createElement("input");
-  i.type = "radio";
-  i.name = name;
-  i.value = value;
-  return i;
+const TYPE_LABEL = {
+  mcq: "Multiple choice",
+  mermaid: "Architecture",
+  open: "Free response",
+  tf: "True or false",
+};
+
+// English-ordinal numerals for the rail. Past 12 we fall back to digits.
+const ORDINALS = [
+  "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x", "xi", "xii",
+];
+function numeralFor(index) {
+  return ORDINALS[index] || String(index + 1);
 }
 
-function renderMCQ(q) {
-  const section = el("section", {}, [
-    el("h3", { text: `${q.id} — ${q.type}` }),
-    el("p", { text: q.prompt }),
+function buildRail(index, type) {
+  return el("div", { class: "question__rail" }, [
+    el("span", { class: "question__num", text: numeralFor(index) }),
+    el("span", { class: "question__type", text: TYPE_LABEL[type] || type }),
   ]);
-  for (const opt of q.options) {
-    section.appendChild(
-      el("label", {}, [radio(q.id, opt), document.createTextNode(" " + opt)])
-    );
+}
+
+// Render a prompt that may contain backtick-fenced inline code (`foo`).
+// We render the surrounding text as a single <p>, swapping `…` for <code>.
+function renderPrompt(text) {
+  const p = el("p", { class: "question__prompt" });
+  const parts = text.split(/(`[^`]+`)/g);
+  for (const part of parts) {
+    if (part.startsWith("`") && part.endsWith("`") && part.length > 1) {
+      p.appendChild(el("code", { text: part.slice(1, -1) }));
+    } else if (part) {
+      p.appendChild(document.createTextNode(part));
+    }
   }
-  return section;
+  return p;
 }
 
-function renderMermaid(q) {
-  const section = el("section", {}, [
-    el("h3", { text: `${q.id} — ${q.type}` }),
-    el("p", { text: q.prompt }),
-  ]);
+function makeChoice({ name, value, label, letter, extra, mermaidSrc }) {
+  // Each .choice is itself a <label> so the entire row is clickable.
+  const input = document.createElement("input");
+  input.type = "radio";
+  input.name = name;
+  input.value = value;
+
+  const mark = el("span", { class: "choice__mark", "aria-hidden": "true" });
+
+  const labelEl = el("span", { class: "choice__label" });
+  if (letter) {
+    labelEl.appendChild(el("span", { class: "choice__letter", text: letter }));
+  }
+  if (label != null) {
+    labelEl.appendChild(document.createTextNode(label));
+  }
+  if (extra) labelEl.appendChild(extra);
+
+  const row = el(
+    "label",
+    { class: mermaidSrc ? "choice choice--mermaid" : "choice" },
+    []
+  );
+  if (mermaidSrc) {
+    const header = el("span", { class: "choice__header" }, [
+      mark,
+      el("span", { class: "choice__letter", text: letter || "" }),
+      el("span", { text: "diagram" }),
+    ]);
+    const diagram = el("div", { class: "mermaid" });
+    diagram.textContent = mermaidSrc;
+    row.appendChild(input);
+    row.appendChild(header);
+    row.appendChild(diagram);
+  } else {
+    row.appendChild(input);
+    row.appendChild(mark);
+    row.appendChild(labelEl);
+  }
+  return row;
+}
+
+function renderMCQ(q, index) {
+  const list = el("ul", { class: "choices choices--mcq" });
+  const letters = ["A", "B", "C", "D", "E", "F", "G", "H"];
+  q.options.forEach((opt, i) => {
+    list.appendChild(
+      el("li", {}, [
+        makeChoice({
+          name: q.id,
+          value: opt,
+          label: opt,
+          letter: letters[i] || String(i + 1),
+        }),
+      ])
+    );
+  });
+
+  return el(
+    "article",
+    { class: "question question--mcq", "data-qid": q.id, style: `animation-delay:${index * 80}ms` },
+    [buildRail(index, q.type), renderPrompt(q.prompt), list]
+  );
+}
+
+function renderMermaid(q, index) {
+  const list = el("ul", { class: "choices choices--mermaid" });
   for (const [label, src] of Object.entries(q.options)) {
-    const diagram = el("div", { class: "mermaid", id: `${q.id}_${label}` });
-    diagram.textContent = src; // raw mermaid source — no HTML escaping needed
-    section.appendChild(
-      el("label", { class: "mermaid-option" }, [
-        radio(q.id, label),
-        el("span", { text: ` Option ${label} ` }),
-        diagram,
+    list.appendChild(
+      el("li", {}, [
+        makeChoice({
+          name: q.id,
+          value: label,
+          letter: label,
+          mermaidSrc: src,
+        }),
       ])
     );
   }
-  return section;
+  return el(
+    "article",
+    { class: "question question--mermaid", "data-qid": q.id, style: `animation-delay:${index * 80}ms` },
+    [buildRail(index, q.type), renderPrompt(q.prompt), list]
+  );
 }
 
-function renderOpen(q) {
+function renderOpen(q, index) {
   const ta = document.createElement("textarea");
   ta.name = q.id;
   ta.rows = 6;
-  ta.placeholder = "Your answer...";
-  return el("section", {}, [
-    el("h3", { text: `${q.id} — ${q.type}` }),
-    el("p", { text: q.prompt }),
+  ta.placeholder = "Write as if explaining to the engineer who'll inherit this code…";
+  ta.setAttribute("spellcheck", "true");
+  const field = el("div", { class: "open-field" }, [
     ta,
+    el("span", {
+      class: "open-field__caption",
+      text: "graded by an LLM against the rubric — a few sentences is plenty",
+    }),
   ]);
+  return el(
+    "article",
+    { class: "question question--open", "data-qid": q.id, style: `animation-delay:${index * 80}ms` },
+    [buildRail(index, q.type), renderPrompt(q.prompt), field]
+  );
 }
 
-function renderTF(q) {
-  return el("section", {}, [
-    el("h3", { text: `${q.id} — ${q.type}` }),
-    el("p", { text: q.prompt }),
-    el("label", {}, [radio(q.id, "true"), document.createTextNode(" true")]),
-    el("label", {}, [radio(q.id, "false"), document.createTextNode(" false")]),
+function renderTF(q, index) {
+  const list = el("ul", { class: "choices choices--tf" }, [
+    el("li", {}, [makeChoice({ name: q.id, value: "true", label: "True" })]),
+    el("li", {}, [makeChoice({ name: q.id, value: "false", label: "False" })]),
   ]);
+  return el(
+    "article",
+    { class: "question question--tf", "data-qid": q.id, style: `animation-delay:${index * 80}ms` },
+    [buildRail(index, q.type), renderPrompt(q.prompt), list]
+  );
 }
 
 async function render() {
-  for (const q of quiz.questions) {
-    let section;
-    if (q.type === "mcq") section = renderMCQ(q);
-    else if (q.type === "mermaid") section = renderMermaid(q);
-    else if (q.type === "open") section = renderOpen(q);
-    else if (q.type === "tf") section = renderTF(q);
-    if (section) root.appendChild(section);
-  }
+  quiz.questions.forEach((q, i) => {
+    let node;
+    if (q.type === "mcq") node = renderMCQ(q, i);
+    else if (q.type === "mermaid") node = renderMermaid(q, i);
+    else if (q.type === "open") node = renderOpen(q, i);
+    else if (q.type === "tf") node = renderTF(q, i);
+    if (node) root.appendChild(node);
+  });
   try {
     await window.mermaid.run({ querySelector: ".mermaid" });
   } catch (e) {
@@ -100,40 +220,94 @@ async function render() {
   }
 }
 
+// ── results ───────────────────────────────────────────────────────────────
+
+function scoreCaption(total) {
+  if (total >= 95) return "Calibrated. Your mental model matches the code.";
+  if (total >= 80) return "Close. A small gap — worth a re-read of the rough edges below.";
+  if (total >= 60) return "Useful. The feedback below is where the medicine is.";
+  if (total >= 30) return "Honest. This is the gap the diagnostic is built to surface.";
+  return "Brave of you to look. Now you know what to read again.";
+}
+
+function buildResultItem(r) {
+  const ok = !!r.correct;
+  const glyph = ok ? "¶" : "§"; // pilcrow / section sign
+  const item = el(
+    "li",
+    { class: `result-item ${ok ? "result-item--ok" : "result-item--bad"}` },
+    [
+      el("span", { class: "result-item__glyph", text: glyph, "aria-hidden": "true" }),
+      el("span", { class: "result-item__id", text: r.question_id }),
+      el("span", { class: "result-item__score", text: `${r.score}%` }),
+    ]
+  );
+  if (r.feedback) {
+    item.appendChild(el("p", { class: "result-item__feedback", text: r.feedback }));
+  }
+  return item;
+}
+
 function renderResults(results) {
-  // Build a friendly result panel: total score + per-question breakdown + Publish button.
+  // Replace contents wholesale on every (re)submit.
   resultEl.innerHTML = "";
-  const summary = el("div", { class: "result-summary" }, [
-    el("h2", { text: `Total: ${results.total_score}%` }),
+
+  const card = el("div", { class: "result-card" });
+
+  const score = el("div", { class: "result-score" }, [
+    el("span", { class: "result-score__num", text: String(results.total_score) }),
+    el("span", { class: "result-score__pct", text: "%" }),
   ]);
-  resultEl.appendChild(summary);
+
+  const caption = el("div", { class: "result-caption" }, [
+    el("span", { class: "result-caption__kicker", text: "Result" }),
+    document.createTextNode(scoreCaption(results.total_score)),
+  ]);
+
+  card.appendChild(el("div", { class: "result-header" }, [score, caption]));
 
   const list = el("ul", { class: "result-list" });
-  for (const r of results.per_question) {
-    const icon = r.correct ? "✅" : "❌";
-    const li = el("li", { class: r.correct ? "ok" : "bad" }, [
-      el("strong", { text: `${icon} ${r.question_id} — ${r.score}%` }),
-    ]);
-    if (r.feedback) {
-      li.appendChild(el("blockquote", { text: r.feedback }));
-    }
-    list.appendChild(li);
-  }
-  resultEl.appendChild(list);
+  for (const r of results.per_question) list.appendChild(buildResultItem(r));
+  card.appendChild(list);
 
-  // Publish button — opt-in.
+  // ── publish block ─────────────────────────────────────────────────────
   const publishBtn = el("button", {
     id: "publish",
     class: "publish",
-    text: "Publish results to PR",
-  });
+    type: "button",
+  }, [
+    el("span", { text: "Publish to PR" }),
+    el("span", { class: "publish__arrow", "aria-hidden": "true", text: "↗" }),
+  ]);
   const publishStatus = el("span", { id: "publish-status", class: "publish-status" });
-  resultEl.appendChild(publishBtn);
-  resultEl.appendChild(publishStatus);
+
+  const publishBlock = el("div", { class: "publish-block" }, [
+    el("div", { class: "publish-block__copy" }, [
+      el("div", { class: "publish-block__kicker", text: "Opt-in" }),
+      el("h3", { class: "publish-block__title", text: "Show your work?" }),
+      el(
+        "p",
+        {
+          class: "publish-block__body",
+          text:
+            "Posting your score back to the pull request takes a little courage. Skip it if you'd rather keep this private — the diagnostic still did its job.",
+        }
+      ),
+    ]),
+    publishBtn,
+    publishStatus,
+  ]);
+  card.appendChild(publishBlock);
+
+  resultEl.appendChild(card);
 
   publishBtn.addEventListener("click", async () => {
     publishBtn.disabled = true;
-    publishStatus.textContent = " Posting…";
+    publishStatus.className = "publish-status";
+    publishStatus.replaceChildren(
+      el("span", { class: "publish-status__spin", "aria-hidden": "true" }),
+      el("span", { text: "Posting to GitHub…" })
+    );
     try {
       const r = await fetch("/publish", {
         method: "POST",
@@ -142,17 +316,33 @@ function renderResults(results) {
       });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const data = await r.json();
-      publishStatus.textContent = ` ✓ Posted (total ${data.total_score}%)`;
+      publishStatus.className = "publish-status publish-status--ok";
+      publishStatus.replaceChildren(
+        el("span", { class: "publish-status__mark", text: "✓", "aria-hidden": "true" }),
+        el("span", { text: `Posted — your ${data.total_score}% is now on the PR.` })
+      );
     } catch (e) {
-      publishStatus.textContent = ` ✗ Failed: ${e}`;
+      publishStatus.className = "publish-status publish-status--err";
+      publishStatus.replaceChildren(
+        el("span", { class: "publish-status__mark", text: "×", "aria-hidden": "true" }),
+        el("span", { text: `Couldn't publish: ${e.message || e}` })
+      );
       publishBtn.disabled = false;
     }
   });
+
+  // Scroll to results, gently.
+  requestAnimationFrame(() => {
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
+
+// ── submit ────────────────────────────────────────────────────────────────
 
 submitBtn.addEventListener("click", async () => {
   submitBtn.disabled = true;
-  submitBtn.textContent = "Grading…";
+  if (submitLabel) submitLabel.textContent = "Grading…";
+
   const entries = quiz.questions.map((q) => {
     let value = "";
     if (q.type === "open") {
@@ -173,10 +363,17 @@ submitBtn.addEventListener("click", async () => {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     lastResults = await resp.json();
     renderResults(lastResults);
-    submitBtn.textContent = "Re-submit";
+    if (submitLabel) submitLabel.textContent = "Re-submit answers";
     submitBtn.disabled = false;
   } catch (e) {
-    resultEl.textContent = "Submission failed: " + e;
+    resultEl.innerHTML = "";
+    resultEl.appendChild(
+      el("div", {
+        class: "submit-error",
+        text: "Submission failed: " + (e.message || e),
+      })
+    );
+    if (submitLabel) submitLabel.textContent = "Submit answers";
     submitBtn.disabled = false;
   }
 });

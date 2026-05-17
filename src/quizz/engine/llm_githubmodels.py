@@ -42,7 +42,6 @@ class GitHubModelsLLM:
             pr_body=req.pr_body,
             diff=req.diff,
             files=files_blob,
-            question_mix=req.question_mix,
         )
         # Try strict structured output first (OpenAI's `parse` API enforces the Pydantic schema).
         # GitHub Models may not support all schema features — fall back to free-form JSON on failure.

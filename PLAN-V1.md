@@ -1,8 +1,37 @@
 # PR Author Quiz v1 — Implementation Plan
 
+> **STATUS (as shipped):** ✅ Delivered, but with deviations from the original plan. See the "What actually shipped" section below before reading the per-task code listings — they're now historical and don't match the live source in several places. Current truth lives in `INTENTS.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Ship a voluntary, opt-in PR-author quiz tool: a portable Python engine, two GitHub Composite Actions (generator + grader), and a single CLI (`quizz take`). End-to-end flow: PR opens → Action posts quiz comment → author runs `quizz take` → local browser quiz → answers comment posted → grader Action LLM-grades open question → results comment posted.
+## What actually shipped (vs the plan)
+
+Major deviations from the original plan:
+
+- **GitHub Actions removed.** Both M4 (generator Action) and M6.2 (grader Action) were prototyped end-to-end against a private sandbox repo, then deliberately removed before shipping. Reasons: GitHub Models rejected the Pydantic strict schema; the fallback path got malformed JSON from `gpt-4o-mini`. We pivoted to local CLI as the canonical path. The Action auto-trigger remains in the v2 backlog. The `quizz generate` and `quizz grade` CLI commands (originally documented as "internal — used by the Action") are now the user-facing surface.
+- **Anthropic LLM adapter added as the default** (not in the original plan, which spec'd GitHub Models only). Uses tool use for guaranteed-schema output. Auth resolution: `api_key` arg → `ANTHROPIC_API_KEY` env → Claude Code OAuth at `~/.claude/.credentials.json`. The GitHub Models adapter is kept as `--llm github` but is not the recommended path.
+- **Question count is now LLM-decided** (originally fixed at 5: "2 MCQ + 1 mermaid + 1 open + 1 tf"). The prompt now tells the model to pick the count and type-mix based on diff size and complexity (typical range 2–10). `question_mix` was removed from `GenerateRequest`.
+- **`quizz take` flow changed.** Originally: `/submit` posts answers comment + browser polls `/results` waiting for the grader Action. Shipped: `/submit` grades EVERYTHING in-session (deterministic + LLM open-question), returns full results inline, **nothing posts to the PR**. A "Publish results to PR" button (POST `/publish`) gives the user opt-in control. The `/results` polling endpoint is gone.
+- **UI is editorially redesigned** (warm paper + ink palette, Fraunces serif headline with rust italic accent, blueprint-styled mermaid options, margin-rail ordinals i/ii/iii). The plan called for "vanilla HTML/JS/CSS" — that's still true, but the visual language is much more distinctive than the original placeholder styles.
+- **Mermaid bundle is the UMD build** (`mermaid.min.js`, 3.2MB, single self-contained file) loaded via `<script>`, not the ESM bundle the plan suggested. Reason: jsdelivr's `+esm` mermaid had unresolvable nested imports (`/npm/d3@.../+esm`).
+- **Mermaid option labels are auto-neutralized to A/B/C/D** by a post-processor in `engine/generate.py`, regardless of whatever the LLM produced (it was emitting semantic labels like `correct`/`wrong_1` which leaked the answer).
+- **Anthropic adapter coerces `pr_number` to 0 before validation.** The model sometimes fills the schema-required `pr_number` field with placeholder strings (`<UNKNOWN>`); the engine overwrites with the real value immediately, so the adapter just sets it to 0 to satisfy Pydantic.
+
+What stayed faithful to the plan:
+- Python 3.12+ + uv + typer + pydantic v2 + FastAPI/uvicorn + httpx/respx + pytest + ruff + mypy.
+- Five-package layered architecture: `engine` (pure) → `comment` (pure) → `ghio` / `server` / `cli`.
+- TDD discipline through M1–M2 (Pydantic models, comment serialization).
+- `gh` CLI for all GitHub I/O.
+- `mmdc` validator (optional, skipped silently when missing).
+- MIT license, GoReleaser-equivalent flow via `release.yml` (still untagged at the time of writing).
+
+The code listings in the milestone sections below are historical — they were faithful to the plan as authored, but the shipped code differs in the places above. Use them as guidance for the design intent, not as a reference for current source. The actual source lives at `src/quizz/` and the design contract lives in `INTENTS.md`.
+
+---
+
+**Goal (original):** Ship a voluntary, opt-in PR-author quiz tool: a portable Python engine, two GitHub Composite Actions (generator + grader), and a single CLI (`quizz take`). End-to-end flow: PR opens → Action posts quiz comment → author runs `quizz take` → local browser quiz → answers comment posted → grader Action LLM-grades open question → results comment posted.
+
+**Goal (as shipped):** Local CLI only. Three subcommands (`generate`, `take`, `grade`). Flow: author opens PR, runs `quizz generate --post`, runs `quizz take` (browser opens, in-session grading via LLM, opt-in Publish button), done. The Actions wrapper is v2 work.
 
 **Architecture:** Five-layer package design with a deliberate engine boundary. The `engine` and `comment` packages are pure (no I/O, no GitHub knowledge). `ghio` is the only place that shells to `gh`. `server` is the local FastAPI app for `quizz take`. `cli` is the thin glue. Same engine reused by `generate`, `take`, and `grade` subcommands — and by the v2 GitHub App later.
 
