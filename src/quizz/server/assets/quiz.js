@@ -41,6 +41,21 @@ function render() {
   mermaid.run();
 }
 
+async function pollResults() {
+  for (let i = 0; i < 120; i++) {  // ~5 minutes at 2.5s intervals
+    const r = await fetch("/results");
+    const data = await r.json();
+    if (data.ready) {
+      document.getElementById("result").textContent =
+        "FINAL RESULTS:\n" + JSON.stringify(data.results, null, 2);
+      return;
+    }
+    await new Promise(r => setTimeout(r, 2500));
+  }
+  document.getElementById("result").textContent =
+    "Results not back after 5 minutes — run `quizz take --show-results` later.";
+}
+
 document.getElementById("submit").addEventListener("click", async () => {
   const entries = quiz.questions.map(q => {
     let value = "";
@@ -59,7 +74,9 @@ document.getElementById("submit").addEventListener("click", async () => {
     body: JSON.stringify({ version: "1", pr_number: quiz.pr_number, entries }),
   });
   const data = await resp.json();
-  document.getElementById("result").textContent = JSON.stringify(data, null, 2);
+  document.getElementById("result").textContent =
+    "Deterministic score (awaiting CI for open Q): " + JSON.stringify(data, null, 2);
+  setTimeout(pollResults, 1500);
 });
 
 render();

@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
-from quizz.engine.models import MCQQuestion, OpenQuestion, Quiz
+from quizz.comment.render import render_results
+from quizz.engine.models import MCQQuestion, OpenQuestion, Quiz, Results, QuestionResult
 from quizz.server.app import build_app
 
 
@@ -55,3 +56,34 @@ def test_submit_grades_deterministic_and_posts(monkeypatch: object) -> None:
     assert data["deterministic_score"] == 100
     assert len(posted) == 1
     assert "<!-- quizz:answers v1 -->" in posted[0]
+
+
+def test_results_endpoint_not_ready(monkeypatch: object) -> None:
+    monkeypatch.setattr(
+        "quizz.server.app.find_latest_marker_comment",
+        lambda pr, marker: None,
+    )
+    app = build_app(quiz=_sample_quiz(), pr_url="x", post_answers=lambda md: None)
+    client = TestClient(app)
+    r = client.get("/results")
+    assert r.status_code == 200
+    assert r.json() == {"ready": False}
+
+
+def test_results_endpoint_ready(monkeypatch: object) -> None:
+    res = Results(
+        pr_number=42,
+        total_score=80,
+        per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")],
+    )
+    monkeypatch.setattr(
+        "quizz.server.app.find_latest_marker_comment",
+        lambda pr, marker: render_results(res),
+    )
+    app = build_app(quiz=_sample_quiz(), pr_url="x", post_answers=lambda md: None)
+    client = TestClient(app)
+    r = client.get("/results")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ready"] is True
+    assert body["results"]["total_score"] == 80

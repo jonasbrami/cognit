@@ -7,10 +7,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from quizz.comment.parse import parse_results
 from quizz.comment.render import render_answers
 from quizz.engine.grade import grade
 from quizz.engine.llm_fake import FakeLLM
 from quizz.engine.models import Answers, Quiz
+from quizz.ghio.pr import find_latest_marker_comment
 
 # Assets directory: use __file__-relative path so StaticFiles gets a real directory.
 # importlib.resources returns a MultiplexedPath in editable installs that os.path.isdir rejects.
@@ -66,5 +68,12 @@ def build_app(
                 "per_question": [r.model_dump() for r in results.per_question],
             }
         )
+
+    @app.get("/results")
+    def results_endpoint() -> JSONResponse:
+        md = find_latest_marker_comment(pr_url, "<!-- quizz:results v1 -->")
+        if md is None:
+            return JSONResponse({"ready": False})
+        return JSONResponse({"ready": True, "results": parse_results(md).model_dump()})
 
     return app
