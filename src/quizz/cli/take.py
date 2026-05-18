@@ -1,13 +1,11 @@
 """`quizz take` — user-facing command. Opens a browser quiz over the PR's quiz comment."""
 
 import json
-import os
 import socket
 import subprocess
 import threading
 import webbrowser
 from collections.abc import Callable
-from pathlib import Path
 
 import typer
 import uvicorn
@@ -15,7 +13,6 @@ import uvicorn
 from quizz.comment.parse import parse_quiz, parse_results
 from quizz.engine.llm import LLMClient
 from quizz.engine.llm_anthropic import AnthropicLLM
-from quizz.engine.llm_githubmodels import GitHubModelsLLM
 from quizz.engine.models import Quiz
 from quizz.ghio.pr import find_latest_marker_comment, post_comment
 from quizz.server.app import build_app
@@ -24,16 +21,9 @@ _MARKER_QUIZ = "<!-- quizz:quiz v1 -->"
 _MARKER_RESULTS = "<!-- quizz:results v1 -->"
 
 
-def _make_llm(model: str, provider: str = "auto") -> LLMClient:
-    """Pick an LLM provider — same auto-detect logic as `quizz generate` / `quizz grade`."""
-    if provider == "auto":
-        has_anthropic_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-        has_claude_oauth = (Path.home() / ".claude" / ".credentials.json").exists()
-        provider = "anthropic" if (has_anthropic_key or has_claude_oauth) else "github"
-    if provider == "anthropic":
-        anthropic_model = model if model not in ("gpt-4o-mini", "gpt-4o") else "claude-sonnet-4-6"
-        return AnthropicLLM(model=anthropic_model)
-    return GitHubModelsLLM(model=model)
+def _make_llm(model: str) -> LLMClient:
+    """Construct the Anthropic LLM client. Kept as a function for test monkeypatch points."""
+    return AnthropicLLM(model=model)
 
 
 def _detect_pr_from_branch() -> str | None:
@@ -98,12 +88,11 @@ def _run_take_flow(pr_url: str, show_results_only: bool, llm: LLMClient) -> None
 def run(
     pr: str | None,
     show_results: bool,
-    model: str = "gpt-4o-mini",
-    provider: str = "auto",
+    model: str = "claude-sonnet-4-6",
 ) -> None:
     pr_url = pr or _detect_pr_from_branch()
     if pr_url is None:
         typer.echo("error: no PR detected from current branch; pass --pr <url>")
         raise typer.Exit(code=1)
-    llm = _make_llm(model, provider)
+    llm = _make_llm(model)
     _run_take_flow(pr_url, show_results_only=show_results, llm=llm)

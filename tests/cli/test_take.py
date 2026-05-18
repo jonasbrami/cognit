@@ -31,7 +31,7 @@ def test_take_auto_detects(monkeypatch: pytest.MonkeyPatch) -> None:
             {"pr": pr_url, "show": show_results_only, "llm": llm}
         ),
     )
-    monkeypatch.setattr("quizz.cli.take._make_llm", lambda model, provider: _fake_llm())
+    monkeypatch.setattr("quizz.cli.take._make_llm", lambda model: _fake_llm())
     result = runner.invoke(app, ["take"])
     assert result.exit_code == 0, result.stdout
     assert captured["pr"] == "https://github.com/o/r/pull/42"

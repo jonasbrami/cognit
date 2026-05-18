@@ -1,47 +1,69 @@
-"""Anthropic SDK adapter for quizz. Uses tool use to enforce schema compliance."""
+"""Anthropic SDK adapter for quizz.
+
+Uses tool use to enforce schema compliance on outputs. The generation pipeline is split
+into two stages:
+
+  1. `generate_quiz_outline` — author picks questions and emits a structured spec for
+     each mermaid question (no diagram syntax yet).
+  2. `generate_mermaid_set` — a focused artisan subagent renders 4 uniform diagrams per
+     spec. The engine fans these out in parallel.
+
+Each call uses a `system=` parameter with `cache_control: ephemeral` on the static
+instruction text, so retries and per-question subagent calls within one run share a
+cached prefix.
+"""
 
 import json
 import os
 import time
 from importlib import resources
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 from anthropic import Anthropic
-from anthropic.types import ToolParam, ToolUseBlock
+from anthropic.types import CacheControlEphemeralParam, TextBlockParam, ToolParam, ToolUseBlock
 
 from quizz.engine.llm import GenerateRequest
-from quizz.engine.models import Quiz
+from quizz.engine.models import MermaidSet, MermaidSpec, QuizOutline
 
 
 # Beta header required when authenticating with a Claude Code OAuth token.
 _OAUTH_BETA_HEADER = "oauth-2025-04-20"
 _CLAUDE_CREDS_PATH = Path.home() / ".claude" / ".credentials.json"
 
+_TOOL_OUTLINE = "submit_quiz_outline"
+_TOOL_MERMAID = "submit_mermaid_set"
+_TOOL_GRADE = "submit_grade"
+
 
 def _load_claude_code_oauth() -> str | None:
     """Read the Claude Code OAuth access token from ~/.claude/.credentials.json.
 
-    Returns the access token if present and unexpired, else None.
+    Returns the token if valid, None if the credentials file is missing or unreadable.
+    Raises RuntimeError with a specific message if the file exists but the token is
+    expired — that's an actionable user problem (run `claude login`), not a "no creds"
+    condition, and the user deserves to be told the actual cause.
     """
     if not _CLAUDE_CREDS_PATH.exists():
         return None
     try:
         creds = json.loads(_CLAUDE_CREDS_PATH.read_text())
-        oauth = creds.get("claudeAiOauth") or {}
-        token = oauth.get("accessToken")
-        expires_at_ms = oauth.get("expiresAt")
-        if not token:
-            return None
-        if expires_at_ms is not None and expires_at_ms < time.time() * 1000:
-            # Expired — caller should re-run `claude login`.
-            return None
-        return str(token)
     except (json.JSONDecodeError, OSError):
         return None
+    oauth = creds.get("claudeAiOauth") or {}
+    token = oauth.get("accessToken")
+    expires_at_ms = oauth.get("expiresAt")
+    if not token:
+        return None
+    if expires_at_ms is not None and expires_at_ms < time.time() * 1000:
+        raise RuntimeError(
+            "Your Claude Code OAuth session is expired. Run `claude login` to refresh, "
+            "or set ANTHROPIC_API_KEY to use an API key instead."
+        )
+    return str(token)
 
 
-def _no_anthropic_credentials() -> str:
+def _no_anthropic_credentials() -> NoReturn:
     raise RuntimeError(
         "Anthropic provider needs credentials. Either:\n"
         "  - set ANTHROPIC_API_KEY (API key), or\n"
@@ -53,8 +75,36 @@ def _load_prompt(name: str) -> str:
     return resources.files("quizz.engine.prompts").joinpath(name).read_text()
 
 
-_QUIZ_TOOL_NAME = "submit_quiz"
-_GRADE_TOOL_NAME = "submit_grade"
+def _system_block(text: str) -> TextBlockParam:
+    """Build a system content block with ephemeral prompt-caching enabled.
+
+    Sent as a list-of-blocks (not a string) so cache_control attaches to the static
+    instruction text. Cache hits last ~5 minutes, which covers all subagent calls in
+    one `quizz generate` run.
+    """
+    return TextBlockParam(
+        type="text",
+        text=text,
+        cache_control=CacheControlEphemeralParam(type="ephemeral"),
+    )
+
+
+def _format_files_blob(files: dict[str, str]) -> str:
+    if not files:
+        return ""
+    return "\n".join(f'<file path="{path}">\n{content}\n</file>' for path, content in files.items())
+
+
+def _format_misconceptions(misconceptions: list[str]) -> str:
+    return "\n".join(f"- {m}" for m in misconceptions)
+
+
+def _extract_tool_input(resp: Any, tool_name: str) -> dict[str, Any]:
+    """Pull the tool_use block matching `tool_name` out of an Anthropic response."""
+    for block in resp.content:
+        if isinstance(block, ToolUseBlock) and block.name == tool_name:
+            return cast(dict[str, Any], block.input)
+    raise RuntimeError(f"Anthropic did not return a tool_use block for {tool_name!r}")
 
 
 class AnthropicLLM:
@@ -63,12 +113,7 @@ class AnthropicLLM:
     Auth resolution order:
       1. Explicit `api_key` argument.
       2. `ANTHROPIC_API_KEY` env var.
-      3. Claude Code OAuth session at `~/.claude/.credentials.json`
-         (billed to the user's Claude Code subscription).
-
-    Note: Anthropic doesn't have a `models/inference` endpoint with strict schema mode like
-    OpenAI's `parse`. Instead we define a tool whose `input_schema` is the Quiz schema, and
-    Claude is forced to call the tool with valid arguments. This gives us the same guarantee.
+      3. Claude Code OAuth session at `~/.claude/.credentials.json`.
     """
 
     def __init__(
@@ -92,58 +137,91 @@ class AnthropicLLM:
                 default_headers={"anthropic-beta": _OAUTH_BETA_HEADER},
             )
 
-    def generate_quiz(self, req: GenerateRequest) -> Quiz:
-        files_blob = "\n\n".join(
-            f"--- {path} ---\n{content}" for path, content in req.files.items()
-        )
-        prompt_template = _load_prompt("generate.txt")
-        # The schema is embedded in the tool; we omit it from the message to avoid duplication.
-        # But we still need to fill the other placeholders.
-        user_message = prompt_template.format(
-            schema="(see the submit_quiz tool's input schema)",
+    # --- Stage 1: outline ---
+
+    def generate_quiz_outline(self, req: GenerateRequest) -> QuizOutline:
+        system = _load_prompt("system_generate.txt")
+        user_message = _load_prompt("generate.txt").format(
             pr_title=req.pr_title,
             pr_body=req.pr_body,
             diff=req.diff,
-            files=files_blob,
+            files=_format_files_blob(req.files),
         )
-
-        # Anthropic tool: input_schema = Quiz's JSON schema. Claude must call this tool.
-        quiz_tool: ToolParam = {
-            "name": _QUIZ_TOOL_NAME,
-            "description": "Submit the generated quiz.",
-            "input_schema": Quiz.model_json_schema(),
+        tool: ToolParam = {
+            "name": _TOOL_OUTLINE,
+            "description": "Submit the generated quiz outline.",
+            "input_schema": QuizOutline.model_json_schema(),
         }
-
         resp = self._client.messages.create(
             model=self._model,
             max_tokens=self._max_tokens,
-            tools=[quiz_tool],
-            tool_choice={"type": "tool", "name": _QUIZ_TOOL_NAME},
+            system=[_system_block(system)],
+            tools=[tool],
+            tool_choice={"type": "tool", "name": _TOOL_OUTLINE},
             messages=[{"role": "user", "content": user_message}],
         )
+        data = _extract_tool_input(resp, _TOOL_OUTLINE)
+        return QuizOutline.model_validate(data)
 
-        # Extract the tool_use block from the response.
-        for block in resp.content:
-            if isinstance(block, ToolUseBlock) and block.name == _QUIZ_TOOL_NAME:
-                data = cast(dict[str, Any], block.input)
-                # The model often fills `pr_number` with a placeholder string (e.g. "<UNKNOWN>")
-                # because the schema requires it but the prompt doesn't reveal it. The caller
-                # in engine/generate.py overwrites pr_number with the real value immediately
-                # after this returns, so the value here is throwaway — coerce to 0 to satisfy
-                # Pydantic's int validator regardless of what the model put there.
-                data["pr_number"] = 0
-                return Quiz.model_validate(data)
+    # --- Stage 2: mermaid artisan ---
 
-        raise RuntimeError("Anthropic did not return a tool_use block; cannot extract quiz")
+    def generate_mermaid_set(self, spec: MermaidSpec, req: GenerateRequest) -> MermaidSet:
+        system = _load_prompt("system_mermaid.txt")
+        # The artisan does not need the full diff/files — the outline LLM has already
+        # digested the change into a spec. Keeping the user message focused keeps the
+        # subagent on-task and the per-call token cost low.
+        user_message = _load_prompt("mermaid.txt").format(
+            diagram_type=spec.diagram_type,
+            correct_description=spec.correct_description,
+            misconceptions=_format_misconceptions(spec.misconceptions),
+            style_notes=spec.style_notes,
+        )
+        tool: ToolParam = {
+            "name": _TOOL_MERMAID,
+            "description": "Submit 4 mermaid diagrams keyed A/B/C/D plus which is correct.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "options": {
+                        "type": "object",
+                        "description": "Exactly four keys A, B, C, D mapping to mermaid sources.",
+                        "properties": {
+                            "A": {"type": "string"},
+                            "B": {"type": "string"},
+                            "C": {"type": "string"},
+                            "D": {"type": "string"},
+                        },
+                        "required": ["A", "B", "C", "D"],
+                        "additionalProperties": False,
+                    },
+                    "correct": {"type": "string", "enum": ["A", "B", "C", "D"]},
+                },
+                "required": ["options", "correct"],
+                "additionalProperties": False,
+            },
+        }
+        resp = self._client.messages.create(
+            model=self._model,
+            max_tokens=2048,
+            system=[_system_block(system)],
+            tools=[tool],
+            tool_choice={"type": "tool", "name": _TOOL_MERMAID},
+            messages=[{"role": "user", "content": user_message}],
+        )
+        data = _extract_tool_input(resp, _TOOL_MERMAID)
+        return MermaidSet.model_validate(data)
+
+    # --- Grading ---
 
     def grade_open(self, question_prompt: str, rubric: str, answer: str) -> tuple[int, str]:
-        prompt = _load_prompt("grade_open.txt").format(
+        system = _load_prompt("system_grade.txt")
+        user_message = _load_prompt("grade_open.txt").format(
             prompt=question_prompt,
             rubric=rubric,
             answer=answer,
         )
-        grade_tool: ToolParam = {
-            "name": _GRADE_TOOL_NAME,
+        tool: ToolParam = {
+            "name": _TOOL_GRADE,
             "description": "Submit a score and feedback for the open-ended answer.",
             "input_schema": {
                 "type": "object",
@@ -152,18 +230,17 @@ class AnthropicLLM:
                     "feedback": {"type": "string"},
                 },
                 "required": ["score", "feedback"],
+                "additionalProperties": False,
             },
         }
         resp = self._client.messages.create(
             model=self._model,
             max_tokens=1024,
-            tools=[grade_tool],
-            tool_choice={"type": "tool", "name": _GRADE_TOOL_NAME},
-            messages=[{"role": "user", "content": prompt}],
+            system=[_system_block(system)],
+            tools=[tool],
+            tool_choice={"type": "tool", "name": _TOOL_GRADE},
+            messages=[{"role": "user", "content": user_message}],
         )
-        for block in resp.content:
-            if isinstance(block, ToolUseBlock) and block.name == _GRADE_TOOL_NAME:
-                data = cast(dict[str, Any], block.input)
-                score = max(0, min(100, int(data.get("score", 0))))
-                return score, str(data.get("feedback", ""))
-        raise RuntimeError("Anthropic did not return a tool_use block; cannot extract grade")
+        data = _extract_tool_input(resp, _TOOL_GRADE)
+        score = max(0, min(100, int(data.get("score", 0))))
+        return score, str(data.get("feedback", ""))

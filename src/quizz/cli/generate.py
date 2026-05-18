@@ -1,43 +1,29 @@
 """`quizz generate` — generate a quiz on a PR by calling an LLM with the diff."""
 
-import os
-from pathlib import Path
-
 import typer
 from anthropic import APIError as AnthropicAPIError
-from openai import OpenAIError
 from pydantic import ValidationError
 
 from quizz.comment.render import render_quiz
 from quizz.engine.generate import generate_quiz
 from quizz.engine.llm import LLMClient
 from quizz.engine.llm_anthropic import AnthropicLLM
-from quizz.engine.llm_githubmodels import GitHubModelsLLM
 from quizz.ghio.diff import fetch_diff_and_files, read_file_at_head
 from quizz.ghio.pr import fetch_pr_info, post_comment
 
 
-def _make_llm(model: str, provider: str = "auto") -> LLMClient:
-    """Pick an LLM provider. 'auto' prefers Anthropic (API key or Claude Code OAuth), else GitHub Models."""
-    if provider == "auto":
-        has_anthropic_key = bool(os.environ.get("ANTHROPIC_API_KEY"))
-        has_claude_oauth = (Path.home() / ".claude" / ".credentials.json").exists()
-        provider = "anthropic" if (has_anthropic_key or has_claude_oauth) else "github"
-    if provider == "anthropic":
-        # If --model wasn't customized from the default, use a Claude default
-        anthropic_model = model if model not in ("gpt-4o-mini", "gpt-4o") else "claude-sonnet-4-6"
-        return AnthropicLLM(model=anthropic_model)
-    return GitHubModelsLLM(model=model)
+def _make_llm(model: str) -> LLMClient:
+    """Construct the Anthropic LLM client. Kept as a function for test monkeypatch points."""
+    return AnthropicLLM(model=model)
 
 
 def run(
     pr: str,
     post: bool = False,
     dry_run: bool = False,
-    model: str = "gpt-4o-mini",
+    model: str = "claude-sonnet-4-6",
     min_diff_lines: int = 50,
     max_diff_lines: int = 2000,
-    provider: str = "auto",
 ) -> None:
     info = fetch_pr_info(pr)
     if "quiz: skip" in info.body.lower():
@@ -58,10 +44,10 @@ def run(
             pr_body=info.body,
             files=files,
             pr_number=info.number,
-            llm=_make_llm(model, provider),
+            llm=_make_llm(model),
             model=model,
         )
-    except (OpenAIError, AnthropicAPIError) as e:
+    except AnthropicAPIError as e:
         typer.echo(f"LLM call failed: {type(e).__name__}: {e}", err=True)
         raise typer.Exit(code=1) from None
     except ValidationError as e:

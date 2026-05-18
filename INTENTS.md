@@ -86,8 +86,8 @@ Everything that needs to be persisted is a PR comment. No state branches, no wor
 
 ### `quizz take` CLI
 
-- Auth: uses local `gh auth login` for PR I/O. LLM auth via Claude Code OAuth (`~/.claude/.credentials.json`) or `ANTHROPIC_API_KEY`. The `--llm <provider>` flag picks `anthropic` (default when key is present) or `github` (GitHub Models).
-- Invocation: `quizz take [--pr <url-or-number>] [--model <name>] [--llm auto|anthropic|github]`. Auto-detects PR from current branch.
+- Auth: uses local `gh auth login` for PR I/O. LLM auth via Claude Code OAuth (`~/.claude/.credentials.json`) or `ANTHROPIC_API_KEY`. Anthropic is the only supported provider in v1.
+- Invocation: `quizz take [--pr <url-or-number>] [--model <name>]`. Auto-detects PR from current branch.
 - Steps:
   1. Find the latest `<!-- quizz:quiz v1 -->` comment in the target PR via `gh pr view --json comments`.
   2. Parse the embedded JSON state.
@@ -95,7 +95,7 @@ Everything that needs to be persisted is a PR comment. No state branches, no wor
   4. Browser renders the quiz with `mermaid.js` (real diagram rendering, not GitHub's markdown view), real form controls for MCQ, a textarea for the open question. UI aesthetic: editorial paper-and-ink, Fraunces serif headline with a rust accent, blueprint-styled mermaid options, margin-rail ordinals (i, ii, iii…) per question. Designed to feel like a printed diagnostic, not a SaaS form.
   5. On submit (POST `/submit`):
      - Grade MCQ + mermaid + T/F deterministically against the answer key (which is in the JSON state, in plaintext — voluntary system).
-     - LLM-grade the open question in-session (same provider as `--llm`).
+     - LLM-grade the open question in-session.
      - Return the full `Results` JSON to the browser. **Nothing is posted to the PR yet.**
      - Browser renders the result panel inline: total score, per-question breakdown, open-question feedback in a blockquote.
   6. On clicking "Publish results to PR" (POST `/publish`):
@@ -108,7 +108,7 @@ Everything that needs to be persisted is a PR comment. No state branches, no wor
 
 ### `quizz grade` CLI (retroactive)
 
-- Invocation: `quizz grade --pr <url-or-number> [--llm auto|anthropic|github] [--model <name>]`. Not part of the primary flow — `quizz take` now does in-session grading + opt-in publishing. Kept around for retroactive use cases (regrade an existing answers comment with a different model, or for CI-style scripts).
+- Invocation: `quizz grade --pr <url-or-number> [--model <name>]`. Not part of the primary flow — `quizz take` now does in-session grading + opt-in publishing. Kept around for retroactive use cases (regrade an existing answers comment with a different model, or for CI-style scripts).
 - Steps:
   1. Locate the latest quiz comment (`<!-- quizz:quiz v1 -->`) and answers comment (`<!-- quizz:answers v1 -->`) on the PR.
   2. Parse both.
@@ -185,8 +185,8 @@ Single workflow input file with sensible defaults. Tunable knobs:
 
 | Knob | Default |
 |---|---|
-| `--llm` provider | `auto` (Anthropic if API key or Claude Code OAuth is available, else GitHub Models) |
-| `--model` | `gpt-4o-mini` when provider = github; `claude-sonnet-4-6` when provider = anthropic |
+| LLM provider | Anthropic only (Claude SDK). API key (`ANTHROPIC_API_KEY`) or Claude Code OAuth (`~/.claude/.credentials.json`) — auto-detected. |
+| `--model` | `claude-sonnet-4-6` |
 | `--min-diff-lines` | 50 (skip tiny PRs) |
 | `--max-diff-lines` | 2000 (skip huge PRs) |
 | `excludes` | `*-lock.*`, `*.lock`, `*.map`, `*.pb.*`, `*_pb2.py`, `*.generated.*`, `*.auto.*`, `dist/**`, `build/**` |
@@ -203,7 +203,7 @@ PR-level escape hatches: `quiz: skip` in PR description suppresses generation en
 | Mermaid syntax invalid in any candidate | Retry generation up to 2 times. If still invalid, drop the mermaid question, generate one additional MCQ. |
 | Diff too large | Skip generation, post comment "PR too large for auto-quiz; run `quizz take --diff-only` locally for a lean version." |
 | CLI can't find quiz comment | Print "No quiz found on this PR — run `quizz generate --pr <url> --post` first." |
-| LLM call fails (network, rate limit, validation) | CLI catches `OpenAIError`/`AnthropicAPIError`/`ValidationError` and exits 1 with a friendly message. |
+| LLM call fails (network, rate limit, validation) | CLI catches `AnthropicAPIError`/`ValidationError` and exits 1 with a friendly message. |
 | `quizz grade` runs but quiz or answers comment is missing | Print "missing quiz or answers comment — nothing to grade." and exit zero. |
 | Stale answers comment from a non-author | Currently no hard guard at the CLI layer; the human running `quizz grade` decides whether to publish. |
 
@@ -211,7 +211,7 @@ PR-level escape hatches: `quiz: skip` in PR description suppresses generation en
 
 - **Unit tests** for the question generator: fixture diffs → assert valid JSON schema, valid mermaid, mermaid label neutralization.
 - **Unit tests** for grading: fixture quiz JSON + fixture answers → assert correct deterministic + LLM-graded scoring.
-- **Unit tests** for the LLM adapters using `respx` to mock `api.anthropic.com` and the OpenAI-compatible GitHub Models endpoint. Includes a regression test for the bug where the model fills the schema-required `pr_number` with a placeholder string — the adapter coerces it to 0 since the caller overwrites it with the real value immediately.
+- **Unit tests** for the LLM adapter using `respx` to mock `api.anthropic.com`. Covers both stages of generation (`generate_quiz_outline` and `generate_mermaid_set`) and `grade_open`, plus assertions on system-prompt + `cache_control` shape.
 - **Unit tests** for the FastAPI server using `TestClient` (covers `/`, `/static/*`, `/submit`, `/publish`).
 - **Playwright end-to-end** (manual, ad hoc): drive the browser through fill → submit → publish against the live PR; screenshot every state. The headless-Chrome `--screenshot` flag is a faster alternative for visual smoke.
 - **CI** (`.github/workflows/ci.yml`): on every push, run `ruff check`, `ruff format --check`, `mypy --strict`, `pytest`, and a CLI install smoke (`quizz --help` etc.).
@@ -221,7 +221,7 @@ PR-level escape hatches: `quiz: skip` in PR description suppresses generation en
 - No merge blocking. No Check Runs. No branch protection integration. (Opt-in philosophy — the discipline is taking the quiz, not being forced through it.)
 - **No GitHub Action auto-trigger.** Both the generator and grader Composite Actions were prototyped end-to-end and then deliberately removed before shipping. v1 is local-CLI only.
 - No GitHub App / Marketplace listing. No hosted infrastructure. No SaaS.
-- No multi-LLM orchestration. Single configurable provider (Anthropic by default, GitHub Models also supported).
+- No multi-LLM orchestration. Single provider — Anthropic (Claude SDK).
 - No team-specific knowledge injection (Skills). Single generic prompt for now.
 - No team enforcement. No "did the author pass the quiz" reporting up to managers.
 - No GitLab / Bitbucket support. GitHub only.
