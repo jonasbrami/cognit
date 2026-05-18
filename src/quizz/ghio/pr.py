@@ -45,16 +45,25 @@ def post_comment(pr_url_or_number: str, body: str) -> str:
     owner, name = info.repo.split("/", 1)
     result = subprocess.run(
         [
-            "gh", "api",
+            "gh",
+            "api",
             f"repos/{owner}/{name}/issues/{info.number}/comments",
-            "-f", f"body={body}",
-            "--jq", ".html_url",
+            "-f",
+            f"body={body}",
+            "--jq",
+            ".html_url",
         ],
         capture_output=True,
         text=True,
         check=True,
     )
-    return result.stdout.strip()
+    url = result.stdout.strip()
+    if not url:
+        raise RuntimeError(
+            f"gh api returned no html_url for PR #{info.number} "
+            f"(stderr: {result.stderr.strip()!r})"
+        )
+    return url
 
 
 def list_comments(pr_url_or_number: str) -> list[dict[str, object]]:

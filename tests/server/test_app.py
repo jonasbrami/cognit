@@ -25,7 +25,7 @@ def test_get_root_renders_quiz() -> None:
         quiz=_sample_quiz(),
         pr_url="https://github.com/o/r/pull/42",
         llm=_noop_llm(),
-        post_comment=lambda md: None,
+        post_comment=lambda md: "https://x/y#unused",
     )
     client = TestClient(app)
     r = client.get("/")
@@ -39,7 +39,7 @@ def test_static_assets_served() -> None:
         quiz=_sample_quiz(),
         pr_url="x",
         llm=_noop_llm(),
-        post_comment=lambda md: None,
+        post_comment=lambda md: "https://x/y#unused",
     )
     client = TestClient(app)
     assert client.get("/static/quiz.js").status_code == 200
@@ -49,11 +49,16 @@ def test_static_assets_served() -> None:
 def test_submit_grades_everything_no_autopost() -> None:
     """POST /submit grades deterministic + LLM open Q, returns full Results, posts NOTHING."""
     posted: list[str] = []
+
+    def _post(md: str) -> str:
+        posted.append(md)
+        return "https://x/y#unused"
+
     app = build_app(
         quiz=_sample_quiz(),
         pr_url="x",
         llm=FakeLLM(canned_open_score=85, canned_open_feedback="solid"),
-        post_comment=lambda md: posted.append(md),
+        post_comment=_post,
     )
     client = TestClient(app)
     payload = {
@@ -78,11 +83,16 @@ def test_submit_grades_everything_no_autopost() -> None:
 def test_publish_posts_results_comment() -> None:
     """POST /publish takes a Results payload and posts it as a PR comment."""
     posted: list[str] = []
+
+    def _post(md: str) -> str:
+        posted.append(md)
+        return "https://x/y#1"
+
     app = build_app(
         quiz=_sample_quiz(),
         pr_url="x",
         llm=_noop_llm(),
-        post_comment=lambda md: (posted.append(md), "https://x/y#1")[1],
+        post_comment=_post,
     )
     client = TestClient(app)
     results_payload = {
@@ -108,11 +118,16 @@ def test_publish_posts_results_comment() -> None:
 def test_submit_then_publish_round_trip() -> None:
     """End-to-end: submit returns results, then publishing those same results posts."""
     posted: list[str] = []
+
+    def _post(md: str) -> str:
+        posted.append(md)
+        return "https://x/y#2"
+
     app = build_app(
         quiz=_sample_quiz(),
         pr_url="x",
         llm=FakeLLM(canned_open_score=60, canned_open_feedback="ok"),
-        post_comment=lambda md: (posted.append(md), "https://x/y#2")[1],
+        post_comment=_post,
     )
     client = TestClient(app)
     submit_resp = client.post(
