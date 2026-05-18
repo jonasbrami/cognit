@@ -27,7 +27,7 @@ def build_app(
     quiz: Quiz,
     pr_url: str,
     llm: LLMClient,
-    post_comment: Callable[[str], None],
+    post_comment: Callable[[str], str],  # returns the comment's html_url
 ) -> FastAPI:
     """Build the FastAPI app for `quizz take`.
 
@@ -67,7 +67,9 @@ def build_app(
     async def publish(req: Request) -> JSONResponse:
         body = await req.json()
         results = Results.model_validate(body)
-        post_comment(render_results(results))
-        return JSONResponse({"ok": True, "total_score": results.total_score})
+        comment_url = post_comment(render_results(results))
+        return JSONResponse(
+            {"ok": True, "total_score": results.total_score, "comment_url": comment_url}
+        )
 
     return app

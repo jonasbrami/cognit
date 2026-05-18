@@ -39,11 +39,22 @@ def fetch_pr_info(pr_url_or_number: str) -> PRInfo:
     )
 
 
-def post_comment(pr_url_or_number: str, body: str) -> None:
-    subprocess.run(
-        ["gh", "pr", "comment", pr_url_or_number, "--body", body],
+def post_comment(pr_url_or_number: str, body: str) -> str:
+    """Post a comment to a PR. Returns the html_url of the created comment."""
+    info = fetch_pr_info(pr_url_or_number)
+    owner, name = info.repo.split("/", 1)
+    result = subprocess.run(
+        [
+            "gh", "api",
+            f"repos/{owner}/{name}/issues/{info.number}/comments",
+            "-f", f"body={body}",
+            "--jq", ".html_url",
+        ],
+        capture_output=True,
+        text=True,
         check=True,
     )
+    return result.stdout.strip()
 
 
 def list_comments(pr_url_or_number: str) -> list[dict[str, object]]:
