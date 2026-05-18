@@ -1,3 +1,5 @@
+import httpx
+from anthropic import APIError as AnthropicAPIError
 from typer.testing import CliRunner
 
 from quizz.cli import app
@@ -33,7 +35,7 @@ def test_grade_command_posts_results(monkeypatch):
     monkeypatch.setattr("quizz.cli.grade.post_comment", lambda pr, md: posted.append(md))
     monkeypatch.setattr(
         "quizz.cli.grade._make_llm",
-        lambda model, provider="auto": FakeLLM(canned_open_score=85, canned_open_feedback="solid"),
+        lambda model: FakeLLM(canned_open_score=85, canned_open_feedback="solid"),
     )
     result = runner.invoke(app, ["grade", "--pr", "https://github.com/o/r/pull/42"])
     assert result.exit_code == 0, result.stdout
@@ -52,8 +54,6 @@ def test_grade_skips_when_no_quiz_or_answers(monkeypatch):
 
 
 def test_grade_handles_llm_failure(monkeypatch):
-    from openai import OpenAIError
-
     quiz = Quiz(
         pr_number=42,
         questions=[
@@ -73,12 +73,19 @@ def test_grade_handles_llm_failure(monkeypatch):
     monkeypatch.setattr("quizz.cli.grade.post_comment", lambda pr, md: None)
 
     class BoomLLM:
-        def generate_quiz(self, req):
-            return quiz
+        def generate_quiz_outline(self, req):
+            raise AssertionError("grade should not generate")
+
+        def generate_mermaid_set(self, spec, req):
+            raise AssertionError("grade should not render mermaid")
 
         def grade_open(self, *args):
-            raise OpenAIError("simulated grading failure")
+            raise AnthropicAPIError(
+                message="simulated grading failure",
+                request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+                body=None,
+            )
 
-    monkeypatch.setattr("quizz.cli.grade._make_llm", lambda model, provider="auto": BoomLLM())
+    monkeypatch.setattr("quizz.cli.grade._make_llm", lambda model: BoomLLM())
     result = runner.invoke(app, ["grade", "--pr", "https://github.com/o/r/pull/42"])
     assert result.exit_code == 1

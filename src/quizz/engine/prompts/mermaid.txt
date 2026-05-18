@@ -1,0 +1,15 @@
+Render the 4 mermaid diagrams for a quiz question. Submit via the `submit_mermaid_set` tool.
+
+<spec>
+<diagram_type>{diagram_type}</diagram_type>
+
+<correct_description>
+{correct_description}
+</correct_description>
+
+<misconceptions>
+{misconceptions}
+</misconceptions>
+
+<style_notes>{style_notes}</style_notes>
+</spec>

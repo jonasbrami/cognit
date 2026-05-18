@@ -1,33 +1,33 @@
+import httpx
+from anthropic import APIError as AnthropicAPIError
 from typer.testing import CliRunner
+
 from quizz.cli import app
-from quizz.engine.models import Quiz, MCQQuestion
 from quizz.engine.llm_fake import FakeLLM
+from quizz.engine.models import MCQQuestion, QuizOutline
 from quizz.ghio.pr import PRInfo
 
 runner = CliRunner()
 
 
-def test_generate_dry_run_prints_markdown(monkeypatch):
-    canned = Quiz(
-        pr_number=42,
-        questions=[
-            MCQQuestion(id="q1", prompt="why?", options=["A", "B"], answer="A"),
-        ],
+def _outline_with_one_mcq() -> QuizOutline:
+    return QuizOutline(
+        questions=[MCQQuestion(id="q1", prompt="why?", options=["A", "B"], answer="A")],
     )
+
+
+def test_generate_dry_run_prints_markdown(monkeypatch):
     monkeypatch.setattr(
         "quizz.cli.generate.fetch_pr_info",
         lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
         "quizz.cli.generate.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: (
-            "diffstr\n" * 100,
-            {},
-        ),  # 100 lines, above default min
+        lambda pr, fetch_file_contents=None: ("diffstr\n" * 100, {}),
     )
     monkeypatch.setattr(
         "quizz.cli.generate._make_llm",
-        lambda model, provider="auto": FakeLLM(canned_quiz=canned),
+        lambda model: FakeLLM(canned_outline=_outline_with_one_mcq()),
     )
     result = runner.invoke(app, ["generate", "--pr", "https://github.com/o/r/pull/42", "--dry-run"])
     assert result.exit_code == 0, result.stdout
@@ -64,11 +64,16 @@ def test_generate_respects_quiz_skip_in_body(monkeypatch):
 
 
 def test_generate_handles_llm_failure(monkeypatch):
-    from openai import OpenAIError
-
     class BoomLLM:
-        def generate_quiz(self, req):
-            raise OpenAIError("simulated network failure")
+        def generate_quiz_outline(self, req):
+            raise AnthropicAPIError(
+                message="simulated network failure",
+                request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+                body=None,
+            )
+
+        def generate_mermaid_set(self, spec, req):
+            raise AssertionError("should not be reached")
 
         def grade_open(self, *args):
             return (0, "")
@@ -81,33 +86,6 @@ def test_generate_handles_llm_failure(monkeypatch):
         "quizz.cli.generate.fetch_diff_and_files",
         lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
     )
-    monkeypatch.setattr("quizz.cli.generate._make_llm", lambda model, provider="auto": BoomLLM())
+    monkeypatch.setattr("quizz.cli.generate._make_llm", lambda model: BoomLLM())
     result = runner.invoke(app, ["generate", "--pr", "https://github.com/o/r/pull/1", "--dry-run"])
     assert result.exit_code == 1
-
-
-def test_generate_picks_anthropic_when_env_set(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake")
-    monkeypatch.setattr(
-        "quizz.cli.generate.fetch_pr_info",
-        lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
-    )
-    monkeypatch.setattr(
-        "quizz.cli.generate.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
-    )
-    chosen: dict[str, str] = {}
-
-    def fake_make_llm(model: str, provider: str = "auto") -> FakeLLM:
-        chosen["provider"] = provider
-        return FakeLLM(
-            canned_quiz=Quiz(
-                pr_number=1,
-                questions=[MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A")],
-            )
-        )
-
-    monkeypatch.setattr("quizz.cli.generate._make_llm", fake_make_llm)
-    result = runner.invoke(app, ["generate", "--pr", "https://github.com/o/r/pull/1", "--dry-run"])
-    assert result.exit_code == 0
-    assert chosen["provider"] == "auto"  # the flag was 'auto'; resolution happens inside _make_llm

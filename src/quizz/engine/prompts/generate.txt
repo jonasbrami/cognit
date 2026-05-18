@@ -1,22 +1,15 @@
-You are a comprehension quiz author. Given a unified diff and the full content of touched files, generate questions probing whether the PR author understands what their code does.
+Generate a comprehension quiz for the PR author based on the following inputs. Decide the count and type-mix yourself; submit via the `submit_quiz_outline` tool.
 
-Return JSON matching this schema strictly:
-{schema}
+<pr_title>{pr_title}</pr_title>
 
-How many questions? **Decide for yourself based on the size and complexity of the change.** A typo fix needs 2–3 probes; a 500-line refactor with new abstractions might warrant 8 or more. Err on the side of fewer, sharper questions over more, redundant ones. Each question must surface a *distinct* aspect of the change — never ask the same thing twice with different framing.
+<pr_body>
+{pr_body}
+</pr_body>
 
-How to choose question types:
-- `mcq` — for facts, invariants, or specific design decisions where there's one right answer and clear distractors.
-- `mermaid` — for control flow, data flow, or component-interaction questions where a diagram is the clearest way to ask "what happens, in what order, between which parts." Produce ONE correct diagram, plus 3 plausible-but-wrong mutations of it (swap an edge, drop a node, add a wrong fork). All 4 diagrams must use identical layout style, identical node-naming style, identical edge density, and identical visual weight — the right answer must not look noticeably "cleaner." Each diagram must be valid mermaid syntax.
-- `open` — for design rationale, tradeoffs, "why did you choose X over Y?" Provide a clear rubric of what a complete answer must mention.
-- `tf` — for subtle behavioral claims that look right at a glance but are wrong (or vice versa). Best used to surface false confidence.
-
-Mix the types to cover both mechanics ("what does this code do?") and intent ("why is it shaped this way?"). Do not feel obligated to use all four types in every quiz — only include types where you have a genuinely worthwhile question to ask.
-
-PR title: {pr_title}
-PR body: {pr_body}
-Diff:
+<diff>
 {diff}
+</diff>
 
-Touched files (full content):
+<files>
 {files}
+</files>
