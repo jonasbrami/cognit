@@ -12,6 +12,8 @@ failure. As a last resort the mermaid question is dropped.
 import random
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from pydantic import ValidationError
+
 from quizz.engine.llm import GenerateRequest, LLMClient
 from quizz.engine.mermaid import is_valid_mermaid
 from quizz.engine.models import (
@@ -40,9 +42,14 @@ def _render_mermaid_with_retry(
     """Call the mermaid artisan subagent until it produces valid diagrams or we give up.
 
     Returns the rendered MermaidQuestion on success, or None to signal "drop this question."
+    Catches schema-shape failures (ValidationError) and tool-extraction failures (RuntimeError)
+    in addition to mermaid-syntax validity — one bad artisan call must not abort the whole quiz.
     """
     for _ in range(max_retries + 1):
-        mset = llm.generate_mermaid_set(placeholder.spec, req)
+        try:
+            mset = llm.generate_mermaid_set(placeholder.spec, req)
+        except (ValidationError, RuntimeError):
+            continue
         if _validate_set(mset):
             return MermaidQuestion(
                 id=placeholder.id,
@@ -56,8 +63,9 @@ def _render_mermaid_with_retry(
 def _neutralize_mermaid_labels(quiz: Quiz, rng: random.Random | None = None) -> Quiz:
     """Rewrite each MermaidQuestion's option keys to neutral A/B/C/D and shuffle order.
 
-    Defense-in-depth: the artisan subagent's schema already enforces A/B/C/D labels.
-    This pass shuffles their order so the correct answer is not always under the same key.
+    LOAD-BEARING — not just defense-in-depth. The artisan's schema enforces A/B/C/D
+    keys, but Claude tends to put the correct answer under "A" most of the time. This
+    shuffle is what breaks that bias. Removing it would visibly leak the answer.
     """
     if rng is None:
         rng = random.Random()
@@ -95,8 +103,11 @@ def generate_quiz(
     llm: LLMClient,
     max_mermaid_retries: int = 2,
     model: str = "claude-sonnet-4-6",
-    max_mermaid_workers: int = 4,
+    max_mermaid_workers: int = 1,
 ) -> Quiz:
+    # `max_mermaid_workers=1` (serial) is safe for hobby-tier Anthropic accounts; bursting
+    # 4+ concurrent Sonnet calls in the same second is a realistic 429 trigger on tier-1
+    # rate limits. Bump this for accounts that have headroom.
     req = GenerateRequest(
         diff=diff,
         pr_title=pr_title,

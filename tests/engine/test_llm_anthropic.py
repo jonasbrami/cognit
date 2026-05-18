@@ -148,3 +148,107 @@ def test_falls_back_to_claude_code_oauth(monkeypatch: pytest.MonkeyPatch) -> Non
     )
     llm = AnthropicLLM()
     assert llm._client.auth_token == "fake-oauth-token"
+
+
+def test_expired_oauth_token_raises_with_specific_message(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: pytest.TempPathFactory
+) -> None:
+    """An expired OAuth token must NOT be reported as 'no credentials' — the user needs
+    to know the actual cause so they run `claude login`."""
+    import time
+
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    # Point the loader at a temp credentials file with an expired token.
+    fake_creds = tmp_path / "credentials.json"  # type: ignore[attr-defined]
+    fake_creds.write_text(
+        '{"claudeAiOauth": {"accessToken": "expired", "expiresAt": '
+        + str(int(time.time() * 1000) - 86_400_000)
+        + "}}"
+    )
+    monkeypatch.setattr("quizz.engine.llm_anthropic._CLAUDE_CREDS_PATH", fake_creds)
+    with pytest.raises(RuntimeError, match="expired"):
+        AnthropicLLM()
+
+
+@respx.mock
+def test_outline_request_pins_tool_schema_and_tool_choice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression guard: ensure the outline tool's input_schema is QuizOutline's
+    (not Quiz's — easy mistake), and that tool_choice forces submit_quiz_outline.
+    Without these the API may return a plain text block and _extract_tool_input crashes."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    canned = QuizOutline(
+        questions=[MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A")]
+    )
+    route = respx.post("https://api.anthropic.com/v1/messages").mock(
+        return_value=httpx.Response(
+            200, json=_tool_use_response(_TOOL_OUTLINE, canned.model_dump())
+        )
+    )
+    AnthropicLLM().generate_quiz_outline(
+        GenerateRequest(diff="x", pr_title="t", pr_body="b", files={})
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert body["tool_choice"] == {"type": "tool", "name": _TOOL_OUTLINE}
+    tool = body["tools"][0]
+    assert tool["name"] == _TOOL_OUTLINE
+    # Outline schema must define MermaidPlaceholder, not MermaidQuestion. Checking the
+    # $defs map (not substring search) avoids false positives from docstrings/comments.
+    defs = tool["input_schema"].get("$defs", {})
+    assert "MermaidPlaceholder" in defs, "outline schema should define MermaidPlaceholder"
+    assert "MermaidQuestion" not in defs, (
+        "outline schema must not define MermaidQuestion (that's the post-render type)"
+    )
+
+
+@respx.mock
+def test_outline_and_mermaid_use_distinct_system_prompts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The cache-control benefit only materializes if each stage's system prompt is
+    a stable, distinct string. If both stages accidentally send the same system text,
+    we'd lose the per-stage focus AND the test that asserts cache_control would still
+    pass — so check the texts actually differ."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    canned_outline = QuizOutline(
+        questions=[MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A")]
+    )
+    canned_mset = MermaidSet(
+        options={
+            "A": "flowchart LR\nA-->B",
+            "B": "flowchart LR\nB-->A",
+            "C": "flowchart LR\nA-->C",
+            "D": "flowchart LR\nD-->A",
+        },
+        correct="A",
+    )
+
+    captured: list[str] = []
+
+    def _route(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        captured.append(body["system"][0]["text"])
+        # Return the appropriate tool based on tool_choice.
+        tool_name = body["tool_choice"]["name"]
+        if tool_name == _TOOL_OUTLINE:
+            return httpx.Response(
+                200, json=_tool_use_response(_TOOL_OUTLINE, canned_outline.model_dump())
+            )
+        return httpx.Response(200, json=_tool_use_response(_TOOL_MERMAID, canned_mset.model_dump()))
+
+    respx.post("https://api.anthropic.com/v1/messages").mock(side_effect=_route)
+
+    llm = AnthropicLLM()
+    llm.generate_quiz_outline(GenerateRequest(diff="x", pr_title="t", pr_body="b", files={}))
+    llm.generate_mermaid_set(
+        MermaidSpec(
+            diagram_type="flowchart",
+            correct_description="x",
+            misconceptions=["a", "b", "c"],
+            style_notes="n",
+        ),
+        GenerateRequest(diff="x", pr_title="t", pr_body="b", files={}),
+    )
+    assert len(captured) == 2
+    assert captured[0] != captured[1], "outline and mermaid system prompts must differ"

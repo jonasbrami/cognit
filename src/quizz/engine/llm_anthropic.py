@@ -18,7 +18,7 @@ import os
 import time
 from importlib import resources
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 from anthropic import Anthropic
 from anthropic.types import CacheControlEphemeralParam, TextBlockParam, ToolParam, ToolUseBlock
@@ -37,24 +37,33 @@ _TOOL_GRADE = "submit_grade"
 
 
 def _load_claude_code_oauth() -> str | None:
-    """Read the Claude Code OAuth access token from ~/.claude/.credentials.json."""
+    """Read the Claude Code OAuth access token from ~/.claude/.credentials.json.
+
+    Returns the token if valid, None if the credentials file is missing or unreadable.
+    Raises RuntimeError with a specific message if the file exists but the token is
+    expired — that's an actionable user problem (run `claude login`), not a "no creds"
+    condition, and the user deserves to be told the actual cause.
+    """
     if not _CLAUDE_CREDS_PATH.exists():
         return None
     try:
         creds = json.loads(_CLAUDE_CREDS_PATH.read_text())
-        oauth = creds.get("claudeAiOauth") or {}
-        token = oauth.get("accessToken")
-        expires_at_ms = oauth.get("expiresAt")
-        if not token:
-            return None
-        if expires_at_ms is not None and expires_at_ms < time.time() * 1000:
-            return None
-        return str(token)
     except (json.JSONDecodeError, OSError):
         return None
+    oauth = creds.get("claudeAiOauth") or {}
+    token = oauth.get("accessToken")
+    expires_at_ms = oauth.get("expiresAt")
+    if not token:
+        return None
+    if expires_at_ms is not None and expires_at_ms < time.time() * 1000:
+        raise RuntimeError(
+            "Your Claude Code OAuth session is expired. Run `claude login` to refresh, "
+            "or set ANTHROPIC_API_KEY to use an API key instead."
+        )
+    return str(token)
 
 
-def _no_anthropic_credentials() -> str:
+def _no_anthropic_credentials() -> NoReturn:
     raise RuntimeError(
         "Anthropic provider needs credentials. Either:\n"
         "  - set ANTHROPIC_API_KEY (API key), or\n"
