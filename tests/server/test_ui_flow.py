@@ -12,6 +12,7 @@ def page():
         try:
             yield pg
         finally:
+            ctx.close()
             browser.close()
 
 

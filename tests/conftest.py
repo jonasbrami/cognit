@@ -26,17 +26,20 @@ def _start_server(app: FastAPI, port: int) -> tuple[uvicorn.Server, threading.Th
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
-    # poll until ready
+    last_exc: Exception | None = None
     deadline = time.time() + 5.0
     while time.time() < deadline:
         try:
             with httpx.Client(timeout=0.3) as c:
                 if c.get(f"http://127.0.0.1:{port}/static/styles.css").status_code == 200:
                     return server, thread
-        except Exception:
-            pass
+        except Exception as exc:
+            last_exc = exc
         time.sleep(0.05)
-    raise RuntimeError("uvicorn did not become ready within 5s")
+    raise RuntimeError(
+        f"uvicorn on port {port} did not become ready within 5s "
+        f"(last error: {last_exc!r})"
+    )
 
 
 @pytest.fixture
@@ -92,3 +95,7 @@ def live_server(sample_quiz: Quiz) -> Iterator[tuple[str, list[str]]]:
     finally:
         server.should_exit = True
         thread.join(timeout=2)
+        if thread.is_alive():
+            raise RuntimeError(
+                f"uvicorn thread did not exit within 2s after should_exit on port {port}"
+            )
