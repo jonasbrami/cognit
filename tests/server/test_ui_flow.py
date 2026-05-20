@@ -48,3 +48,38 @@ def test_mcq_selection_toggles_class(live_server, page) -> None:
     opts.nth(1).click()
     assert "selected" in (opts.nth(1).get_attribute("class") or "")
     assert "selected" not in (opts.nth(0).get_attribute("class") or "")
+
+
+def test_submit_renders_results(live_server, page) -> None:
+    base, _posted = live_server
+    page.goto(base, wait_until="networkidle")
+
+    # answer all 4 questions
+    # Q1 mcq — pick option B (the correct one in fixture)
+    page.locator("#questions-root .file").nth(0).locator(".option").nth(1).click()
+    # Q2 mermaid — pick diagram A (correct)
+    page.locator("#questions-root .file").nth(1).locator(".diagram").first.click()
+    # Q3 open — type text
+    page.locator("#questions-root .file").nth(2).locator("textarea").fill(
+        "Redis is shared state across worker processes."
+    )
+    # Q4 tf — pick False (correct in fixture)
+    page.locator("#questions-root .file").nth(3).locator(".tf__cell").nth(1).click()
+
+    # submit
+    page.locator("#reviewbar button").click()
+    page.wait_for_selector("#questions-root .summary", timeout=5000)
+
+    # summary card present with total score
+    assert page.locator("#questions-root .summary").is_visible()
+    summary = page.locator("#questions-root .summary").text_content()
+    assert "95" in summary  # (100 + 100 + 80 + 100) / 4 = 95 — FakeLLM gives open=80
+
+    # per-question result cards
+    results = page.locator("#questions-root .file")
+    assert results.count() == 4
+    # at least 3 ok cards (the deterministic correct ones)
+    assert page.locator("#questions-root .file.ok").count() >= 3
+    # reviewbar swapped to publish state
+    bar = page.locator("#reviewbar")
+    assert "publish" in bar.text_content().lower()

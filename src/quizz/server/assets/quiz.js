@@ -217,9 +217,196 @@ function renderQuestions() {
   window.mermaid.run({ querySelector: "#questions-root .mermaid" });
 }
 
+// ── results-state renderers ─────────────────────────────────────
+
+function scoreClass(score) {
+  if (score >= 90) return "ok";
+  if (score >= 60) return "mid";
+  return "bad";
+}
+
+function renderSummary(results) {
+  const total = results.total_score;
+  const pips = results.per_question.map(r => {
+    const cls = scoreClass(r.score);
+    const glyph = cls === "ok" ? "✓" : cls === "bad" ? "✗" : "~";
+    return el("span", { class: `pip pip--${cls}`, text: glyph });
+  });
+  return el("section", { class: "summary" }, [
+    el("div", {
+      class: "summary__ring",
+      // single ink color regardless of score (decision #3)
+      style: `--val: ${total}; --c: var(--fg);`,
+    }, [
+      el("div", { class: "summary__num", text: String(total) }, [
+        el("small", { text: "/ 100" }),
+      ]),
+    ]),
+    el("div", { class: "summary__body" }, [
+      el("h2", { text: `Scored locally · ${results.per_question.filter(r => r.correct).length} of ${results.per_question.length} right` }),
+      el("p", { text: "Below: per-question breakdown. The open answer is graded by the LLM." }),
+      el("div", { class: "summary__pips" }, pips),
+    ]),
+  ]);
+}
+
+function renderResultCard(q, r, i) {
+  const cls = scoreClass(r.score);
+  const verdict = cls === "ok" ? "correct" : cls === "bad" ? "incorrect" : "partial";
+  const body = [
+    el("p", { class: "prompt", text: q.prompt }),
+  ];
+  // show user's answer + correct answer if wrong
+  const userVal = answers[q.id];
+  if (q.type === "mcq" || q.type === "tf") {
+    body.push(el("div", { class: `ans-row user-${cls === "ok" ? "ok" : "bad"}` }, [
+      el("div", { class: "ans-row__icon", text: cls === "ok" ? "✓" : "✗" }),
+      el("div", { class: "ans-row__text", text: String(userVal) }),
+      el("div", { class: "ans-row__tag", text: cls === "ok" ? "correct" : "your pick" }),
+    ]));
+    if (cls !== "ok") {
+      body.push(el("div", { class: "ans-row correct" }, [
+        el("div", { class: "ans-row__icon", text: "✓" }),
+        el("div", { class: "ans-row__text", text: String(q.answer) }),
+        el("div", { class: "ans-row__tag", text: "correct answer" }),
+      ]));
+    }
+  } else if (q.type === "mermaid") {
+    // show user's pick + correct (omit the rest)
+    const wantLabels = new Set([userVal, q.answer].filter(Boolean));
+    const grid = el("div", { class: "diagrams" });
+    Object.entries(q.options).forEach(([label, src]) => {
+      if (!wantLabels.has(label)) return;
+      const isCorrect = label === q.answer;
+      const isUserPick = label === userVal;
+      const merm = el("div", { class: "mermaid" });
+      merm.textContent = src;
+      const klass = `diagram ${isCorrect ? "correct" : ""} ${isUserPick && !isCorrect ? "user-bad" : ""}`.trim();
+      const tag = isCorrect && isUserPick ? "correct · your pick" : isCorrect ? "correct" : "your pick";
+      grid.appendChild(el("div", { class: klass }, [
+        el("div", { class: "diagram__label", text: `diagram ${label} · ${tag}` }),
+        merm,
+      ]));
+    });
+    body.push(grid);
+  } else if (q.type === "open") {
+    body.push(el("div", { class: "open-shown", text: `"${userVal || ''}"` }));
+    if (r.feedback) {
+      body.push(el("div", { class: "feedback" }, [
+        el("div", { class: "feedback__head" }, [
+          el("span", { class: "avatar", text: "CL" }),
+          " LLM feedback",
+        ]),
+        el("p", { text: r.feedback }),
+      ]));
+    }
+  }
+
+  return el("article", { class: `file ${cls}` }, [
+    el("div", { class: "file__head" }, [
+      el("div", { class: "file__title", text: `Question ${i + 1}` }),
+      el("div", { class: "file__score" }, [
+        "score · ",
+        el("b", { text: `${r.score} / 100` }),
+      ]),
+      el("div", { class: "file__verdict", text: verdict }),
+    ]),
+    el("div", { class: "file__body" }, body),
+  ]);
+}
+
+function renderSidebarResults(results) {
+  sidebarRoot.innerHTML = "";
+  const correct = results.per_question.filter(r => r.correct).length;
+  sidebarRoot.appendChild(el("div", { class: "side-block" }, [
+    el("div", { class: "side-title", text: "Score" }),
+    el("div", { class: "side-score" }, [
+      el("span", { class: "side-score__n", text: String(results.total_score) }),
+      el("span", { class: "side-score__d", text: "/ 100" }),
+    ]),
+    el("div", { class: "progress-text", text: `${correct} of ${results.per_question.length} fully correct` }),
+  ]));
+  sidebarRoot.appendChild(el("div", { class: "side-block" }, [
+    el("div", { class: "side-title", text: "Per question" }),
+    el("ul", { class: "sidelist" },
+      results.per_question.map((r, i) => {
+        const cls = scoreClass(r.score);
+        const glyph = cls === "ok" ? "✓" : cls === "bad" ? "✗" : "~";
+        return el("li", {}, [
+          el("span", { class: `ic ${cls}`, text: glyph }),
+          ` Q${i + 1}`,
+          el("span", { class: "pts", text: String(r.score) }),
+        ]);
+      })
+    ),
+  ]));
+  sidebarRoot.appendChild(el("div", { class: "side-block" }, [
+    el("div", { class: "side-title", text: "Visibility" }),
+    el("div", { class: "side-text", text: "Private to you. Click publish to share as a PR comment." }),
+  ]));
+}
+
+function renderReviewbarPublish() {
+  reviewbar.className = "reviewbar is-publish";
+  reviewbar.innerHTML = "";
+  reviewbar.appendChild(el("div", { class: "reviewbar__msg" }, [
+    el("b", { text: "Quiz private to you." }),
+    " Publishing posts a scorecard comment on the PR.",
+  ]));
+  reviewbar.appendChild(el("div", { class: "reviewbar__spacer" }));
+  reviewbar.appendChild(el("button", {
+    class: "btn btn--secondary",
+    type: "button",
+    text: "Discard",
+    onclick: () => { renderQuestions(); },
+  }));
+  reviewbar.appendChild(el("button", {
+    class: "btn btn--primary",
+    type: "button",
+    text: "Publish to PR",
+    onclick: publishResults,
+  }));
+}
+
+function renderResults(results) {
+  lastResults = results;
+  questionsRoot.innerHTML = "";
+  questionsRoot.appendChild(renderSummary(results));
+  results.per_question.forEach((r, i) => {
+    questionsRoot.appendChild(renderResultCard(quiz.questions[i], r, i));
+  });
+  renderSidebarResults(results);
+  renderReviewbarPublish();
+  // re-render any mermaid blocks in results
+  window.mermaid.run({ querySelector: "#questions-root .mermaid" });
+}
+
 async function submitQuiz() {
-  // implemented in Task 6
-  console.log("submit pending", answers);
+  // disable button to prevent double-submit
+  const btn = reviewbar.querySelector("button");
+  btn.disabled = true;
+  btn.textContent = "Submitting…";
+  const payload = {
+    version: "1",
+    pr_number: quiz.pr_number,
+    entries: quiz.questions.map(q => ({
+      question_id: q.id,
+      value: String(answers[q.id] ?? ""),
+    })),
+  };
+  const resp = await fetch("/submit", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!resp.ok) {
+    btn.disabled = false;
+    btn.textContent = "Submit quiz";
+    alert(`Submit failed: ${resp.status}`);
+    return;
+  }
+  const results = await resp.json();
+  renderResults(results);
 }
 
 async function publishResults() {
