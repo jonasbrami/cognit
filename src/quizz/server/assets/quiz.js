@@ -222,4 +222,9 @@ async function submitQuiz() {
   console.log("submit pending", answers);
 }
 
+async function publishResults() {
+  // implemented in Task 7
+  console.log("publish pending", lastResults);
+}
+
 renderQuestions();

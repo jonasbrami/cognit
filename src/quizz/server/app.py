@@ -48,10 +48,12 @@ def build_app(
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
+        # Escape </ so a question prompt containing </script> can't close the inline script tag.
+        safe_quiz_json = quiz.model_dump_json().replace("</", "<\\/")
         html = (
             index_template.replace("__PR__", str(quiz.pr_number))
             .replace("__PR_URL__", pr_url)
-            .replace("__QUIZ_JSON__", quiz.model_dump_json())
+            .replace("__QUIZ_JSON__", safe_quiz_json)
         )
         return HTMLResponse(html)
 

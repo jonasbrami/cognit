@@ -195,6 +195,29 @@ def test_styles_css_has_expected_sections() -> None:
         assert marker in css, f"missing CSS marker: {marker!r}"
 
 
+def test_quiz_json_escapes_close_script() -> None:
+    """Question prompts containing </script> must not break out of the inline script tag."""
+    hazardous = Quiz(
+        pr_number=1,
+        questions=[MCQQuestion(id="q1", prompt="What about </script><script>alert(1)</script>?", options=["A", "B"], answer="A")],
+    )
+    app = build_app(
+        quiz=hazardous,
+        pr_url="x",
+        llm=_noop_llm(),
+        post_comment=lambda md: "x",
+    )
+    client = TestClient(app)
+    r = client.get("/")
+    assert r.status_code == 200
+    # The hazardous string is encoded as <\/script> inside the JSON literal, not </script>.
+    # We assert the bare </script> sequence does NOT appear immediately followed by <script>
+    # (which would indicate a successful breakout).
+    assert "</script><script>alert" not in r.text
+    # And the escaped form is present (the </ was rewritten).
+    assert "<\\/script><script>alert" in r.text
+
+
 def test_publish_returns_comment_url() -> None:
     """POST /publish returns the URL of the posted comment so the UI can link to it."""
     app = build_app(
