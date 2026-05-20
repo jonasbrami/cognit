@@ -78,8 +78,9 @@ def test_submit_renders_results(live_server, page) -> None:
     # per-question result cards
     results = page.locator("#questions-root .file")
     assert results.count() == 4
-    # at least 3 ok cards (the deterministic correct ones)
-    assert page.locator("#questions-root .file.ok").count() >= 3
+    # exactly 3 ok cards (deterministic 100s); the open answer scores 80 = mid
+    assert page.locator("#questions-root .file.ok").count() == 3
+    assert page.locator("#questions-root .file.mid").count() == 1
     # reviewbar swapped to publish state
     bar = page.locator("#reviewbar")
     assert "publish" in bar.text_content().lower()

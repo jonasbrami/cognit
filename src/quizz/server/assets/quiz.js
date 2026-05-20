@@ -358,7 +358,12 @@ function renderReviewbarPublish() {
     class: "btn btn--secondary",
     type: "button",
     text: "Discard",
-    onclick: () => { renderQuestions(); },
+    onclick: () => {
+      // discard the submission AND any previously-entered answers (start fresh)
+      Object.keys(answers).forEach(k => delete answers[k]);
+      lastResults = null;
+      renderQuestions();
+    },
   }));
   reviewbar.appendChild(el("button", {
     class: "btn btn--primary",
@@ -368,7 +373,7 @@ function renderReviewbarPublish() {
   }));
 }
 
-function renderResults(results) {
+async function renderResults(results) {
   lastResults = results;
   questionsRoot.innerHTML = "";
   questionsRoot.appendChild(renderSummary(results));
@@ -377,8 +382,8 @@ function renderResults(results) {
   });
   renderSidebarResults(results);
   renderReviewbarPublish();
-  // re-render any mermaid blocks in results
-  window.mermaid.run({ querySelector: "#questions-root .mermaid" });
+  // re-render any mermaid blocks in results — await so tests can see finished SVGs
+  await window.mermaid.run({ querySelector: "#questions-root .mermaid" });
 }
 
 async function submitQuiz() {
@@ -406,7 +411,7 @@ async function submitQuiz() {
     return;
   }
   const results = await resp.json();
-  renderResults(results);
+  await renderResults(results);
 }
 
 async function publishResults() {
