@@ -165,6 +165,36 @@ def test_submit_then_publish_round_trip() -> None:
     assert "<!-- quizz:results v1 -->" in posted[0]
 
 
+def test_styles_css_has_expected_sections() -> None:
+    """Stylesheet is served and organized per the spec's component inventory."""
+    app = build_app(
+        quiz=_sample_quiz(),
+        pr_url="x",
+        llm=_noop_llm(),
+        post_comment=lambda md: "x",
+    )
+    client = TestClient(app)
+    r = client.get("/static/styles.css")
+    assert r.status_code == 200
+    css = r.text
+    # token block + key section markers
+    for marker in [
+        "/* tokens",
+        "/* topbar",
+        "/* repohead",
+        "/* card",
+        "/* reviewbar",
+        "/* summary",
+        "/* feedback",
+        "/* banner",
+        "/* responsive",
+        "--blue",
+        "--fg",
+        "JetBrains Mono",
+    ]:
+        assert marker in css, f"missing CSS marker: {marker!r}"
+
+
 def test_publish_returns_comment_url() -> None:
     """POST /publish returns the URL of the posted comment so the UI can link to it."""
     app = build_app(
