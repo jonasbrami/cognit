@@ -16,6 +16,17 @@ def page():
             browser.close()
 
 
+def test_prompt_renders_backticks_as_code(live_server, page) -> None:
+    """Inline `backticks` in a prompt must render as <code> elements (styled inline)."""
+    base, _posted = live_server
+    page.goto(base, wait_until="networkidle")
+    # The fixture's Q1 prompt contains `rate_limit_exceeded(key)` in backticks.
+    first_prompt = page.locator("#questions-root .file").first.locator(".prompt")
+    code_els = first_prompt.locator("code")
+    assert code_els.count() >= 1
+    assert "rate_limit_exceeded" in code_els.first.text_content()
+
+
 def test_initial_load_shows_questions(live_server, page) -> None:
     base, _posted = live_server
     page.goto(base, wait_until="networkidle")
@@ -84,6 +95,34 @@ def test_submit_renders_results(live_server, page) -> None:
     # reviewbar swapped to publish state
     bar = page.locator("#reviewbar")
     assert "publish" in bar.text_content().lower()
+
+
+def test_discard_returns_to_questions_with_empty_state(live_server, page) -> None:
+    """After submit→Discard, the question view returns and answers are cleared."""
+    base, _posted = live_server
+    page.goto(base, wait_until="networkidle")
+    # answer + submit
+    page.locator("#questions-root .file").nth(0).locator(".option").nth(1).click()
+    page.locator("#questions-root .file").nth(1).locator(".diagram").first.click()
+    page.locator("#questions-root .file").nth(2).locator("textarea").fill("x")
+    page.locator("#questions-root .file").nth(3).locator(".tf__cell").nth(1).click()
+    page.locator("#reviewbar button").get_by_text("Submit", exact=False).click()
+    page.wait_for_selector("#questions-root .summary", timeout=5000)
+    # Discard
+    page.locator("#reviewbar button").get_by_text("Discard", exact=False).click()
+    page.wait_for_selector("#questions-root .file .option", timeout=3000)
+    # back to questions, no selections
+    opts = page.locator("#questions-root .file").first.locator(".option")
+    assert opts.count() == 4
+    for i in range(4):
+        klass = opts.nth(i).get_attribute("class") or ""
+        assert "selected" not in klass
+    # sidebar progress reset
+    progress_text = page.locator("#sidebar-root .progress-text").text_content()
+    assert "0 of" in progress_text
+    # submit disabled (no answers)
+    submit_btn = page.locator("#reviewbar button.btn--primary")
+    assert submit_btn.get_attribute("disabled") is not None or submit_btn.is_disabled()
 
 
 def test_publish_renders_success_banner(live_server, page) -> None:

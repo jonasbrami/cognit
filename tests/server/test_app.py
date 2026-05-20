@@ -218,6 +218,22 @@ def test_quiz_json_escapes_close_script() -> None:
     assert "<\\/script><script>alert" in r.text
 
 
+def test_pr_url_is_escaped_in_attr_and_js() -> None:
+    """A hostile pr_url containing a double-quote must not break out of href= or window.PR_URL."""
+    app = build_app(
+        quiz=_sample_quiz(),
+        pr_url='https://x/y"><script>alert(1)</script>',
+        llm=_noop_llm(),
+        post_comment=lambda md: "x",
+    )
+    client = TestClient(app)
+    html = client.get("/").text
+    # the literal break-out sequence must not appear in the document
+    assert '"><script>alert' not in html
+    # and the angle-bracket form (raw) is also absent
+    assert '<script>alert(1)</script>' not in html
+
+
 def test_publish_returns_comment_url() -> None:
     """POST /publish returns the URL of the posted comment so the UI can link to it."""
     app = build_app(

@@ -7,7 +7,7 @@
 
 window.mermaid.initialize({
   startOnLoad: false,
-  securityLevel: "loose",
+  securityLevel: "strict",
   fontFamily: '"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace',
   themeVariables: {
     background: "transparent",
@@ -50,6 +50,17 @@ function el(tag, attrs = {}, children = []) {
   return node;
 }
 
+// Split on `backticks` and render the spans as <code>. Safe — uses textContent.
+function renderPrompt(text) {
+  const parts = String(text).split(/(`[^`]+`)/g);
+  return parts.map(p => {
+    if (p.startsWith("`") && p.endsWith("`") && p.length >= 2) {
+      return el("code", { text: p.slice(1, -1) });
+    }
+    return document.createTextNode(p);
+  });
+}
+
 const TYPE_LABEL = {
   mcq: "Multiple choice",
   mermaid: "Diagram · pick a flow",
@@ -61,15 +72,39 @@ const LETTER = ["A", "B", "C", "D", "E", "F"];
 
 // ── question renderers ──────────────────────────────────────────
 
+function selectMCQOption(q, opts, idx) {
+  answers[q.id] = q.options[idx];
+  opts.forEach((o, j) => {
+    o.classList.toggle("selected", j === idx);
+    o.setAttribute("aria-checked", j === idx ? "true" : "false");
+    o.setAttribute("tabindex", j === idx ? "0" : "-1");
+  });
+  updateReviewbarSubmit();
+}
+
 function renderMCQ(q) {
-  return q.options.map((opt, i) =>
-    el("div", {
+  const opts = q.options.map((opt, i) => {
+    const node = el("div", {
       class: "option",
-      onclick: (e) => {
-        answers[q.id] = opt;
-        e.currentTarget.parentElement.querySelectorAll(".option").forEach(o => o.classList.remove("selected"));
-        e.currentTarget.classList.add("selected");
-        updateReviewbarSubmit();
+      role: "radio",
+      "aria-checked": "false",
+      tabindex: i === 0 ? "0" : "-1",
+      onclick: () => selectMCQOption(q, opts, i),
+      onkeydown: (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          selectMCQOption(q, opts, i);
+        } else if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+          e.preventDefault();
+          const next = (i + 1) % opts.length;
+          selectMCQOption(q, opts, next);
+          opts[next].focus();
+        } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+          e.preventDefault();
+          const prev = (i - 1 + opts.length) % opts.length;
+          selectMCQOption(q, opts, prev);
+          opts[prev].focus();
+        }
       },
     }, [
       el("div", { class: "option__radio" }),
@@ -77,27 +112,55 @@ function renderMCQ(q) {
         el("span", { class: "option__key", text: LETTER[i] }),
         el("span", { class: "option__text", text: opt }),
       ]),
-    ])
-  );
+    ]);
+    return node;
+  });
+  const group = el("div", { role: "radiogroup", "aria-label": "Answer options" });
+  opts.forEach(o => group.appendChild(o));
+  return [group];
 }
 
 function renderMermaid(q) {
-  const grid = el("div", { class: "diagrams" });
-  Object.entries(q.options).forEach(([label, src]) => {
+  const grid = el("div", { class: "diagrams", role: "radiogroup", "aria-label": "Answer options" });
+  const cards = [];
+  Object.entries(q.options).forEach(([label, src], i) => {
     const merm = el("div", { class: "mermaid" });
     merm.textContent = src;  // textContent only — never innerHTML (security)
     const card = el("div", {
       class: "diagram",
-      onclick: (e) => {
+      role: "radio",
+      "aria-checked": "false",
+      tabindex: i === 0 ? "0" : "-1",
+      onclick: () => {
         answers[q.id] = label;
-        grid.querySelectorAll(".diagram").forEach(d => d.classList.remove("selected"));
-        e.currentTarget.classList.add("selected");
+        cards.forEach((c, j) => {
+          c.classList.toggle("selected", j === i);
+          c.setAttribute("aria-checked", j === i ? "true" : "false");
+          c.setAttribute("tabindex", j === i ? "0" : "-1");
+        });
         updateReviewbarSubmit();
+      },
+      onkeydown: (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          cards[i].click();
+        } else if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+          e.preventDefault();
+          const next = (i + 1) % cards.length;
+          cards[next].click();
+          cards[next].focus();
+        } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+          e.preventDefault();
+          const prev = (i - 1 + cards.length) % cards.length;
+          cards[prev].click();
+          cards[prev].focus();
+        }
       },
     }, [
       el("div", { class: "diagram__label", text: `diagram ${label}` }),
       merm,
     ]);
+    cards.push(card);
     grid.appendChild(card);
   });
   return [grid];
@@ -113,18 +176,42 @@ function renderOpen(q) {
 }
 
 function renderTF(q) {
-  const wrap = el("div", { class: "tf" });
-  ["true", "false"].forEach((v) => {
+  const wrap = el("div", { class: "tf", role: "radiogroup", "aria-label": "Answer options" });
+  const cells = [];
+  ["true", "false"].forEach((v, i) => {
     const cell = el("div", {
       class: "tf__cell",
+      role: "radio",
+      "aria-checked": "false",
+      tabindex: i === 0 ? "0" : "-1",
       text: v.charAt(0).toUpperCase() + v.slice(1),
-      onclick: (e) => {
+      onclick: () => {
         answers[q.id] = v;
-        wrap.querySelectorAll(".tf__cell").forEach(c => c.classList.remove("sel"));
-        e.currentTarget.classList.add("sel");
+        cells.forEach((c, j) => {
+          c.classList.toggle("sel", j === i);
+          c.setAttribute("aria-checked", j === i ? "true" : "false");
+          c.setAttribute("tabindex", j === i ? "0" : "-1");
+        });
         updateReviewbarSubmit();
       },
+      onkeydown: (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          cells[i].click();
+        } else if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+          e.preventDefault();
+          const next = (i + 1) % cells.length;
+          cells[next].click();
+          cells[next].focus();
+        } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+          e.preventDefault();
+          const prev = (i - 1 + cells.length) % cells.length;
+          cells[prev].click();
+          cells[prev].focus();
+        }
+      },
     });
+    cells.push(cell);
     wrap.appendChild(cell);
   });
   return [wrap];
@@ -139,7 +226,7 @@ function renderQuestion(q, i) {
       el("div", { class: "file__type", text: TYPE_LABEL[q.type] }),
     ]),
     el("div", { class: "file__body" }, [
-      el("p", { class: "prompt", text: q.prompt }),
+      el("p", { class: "prompt" }, renderPrompt(q.prompt)),
       ...inputs,
     ]),
   ]);
@@ -189,6 +276,13 @@ function updateSidebarProgress() {
 
 function updateReviewbarSubmit() {
   updateSidebarProgress();
+  const btn = reviewbar.querySelector("button.btn--primary");
+  if (!btn) return;
+  const allAnswered = quiz.questions.every(q => {
+    const v = answers[q.id];
+    return v != null && v !== "";
+  });
+  btn.disabled = !allAnswered;
 }
 
 function renderReviewbarSubmit() {
@@ -198,12 +292,18 @@ function renderReviewbarSubmit() {
     "Failing the quiz won't block your merge. Open question grades after submit.",
   ]));
   reviewbar.appendChild(el("div", { class: "reviewbar__spacer" }));
-  reviewbar.appendChild(el("button", {
+  const allAnswered = quiz.questions.every(q => {
+    const v = answers[q.id];
+    return v != null && v !== "";
+  });
+  const btn = el("button", {
     class: "btn btn--primary",
     type: "button",
     text: "Submit quiz",
     onclick: submitQuiz,
-  }));
+  });
+  if (!allAnswered) btn.disabled = true;
+  reviewbar.appendChild(btn);
 }
 
 // ── flow ────────────────────────────────────────────────────────
@@ -254,7 +354,7 @@ function renderResultCard(q, r, i) {
   const cls = scoreClass(r.score);
   const verdict = cls === "ok" ? "correct" : cls === "bad" ? "incorrect" : "partial";
   const body = [
-    el("p", { class: "prompt", text: q.prompt }),
+    el("p", { class: "prompt" }, renderPrompt(q.prompt)),
   ];
   // show user's answer + correct answer if wrong
   const userVal = answers[q.id];
