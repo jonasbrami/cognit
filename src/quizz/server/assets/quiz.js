@@ -414,9 +414,78 @@ async function submitQuiz() {
   await renderResults(results);
 }
 
+// ── published-state renderers ───────────────────────────────────
+
+function renderBanner(commentUrl) {
+  return el("section", { class: "banner" }, [
+    el("div", { class: "banner__icon", text: "✓" }),
+    el("div", { class: "banner__body" }, [
+      el("h2", { text: "Posted to PR · just now" }),
+      el("p", { text: "Scorecard is live as a comment on the PR. Collaborators can see the score." }),
+    ]),
+    el("a", { class: "banner__cta", href: commentUrl, target: "_blank", rel: "noopener", text: "View comment ↗" }),
+  ]);
+}
+
+function renderSidebarPublished(results) {
+  // keep score block + per-question list, replace Visibility with Timeline
+  renderSidebarResults(results);
+  // remove the Visibility block (last side-block) and append Timeline
+  const blocks = sidebarRoot.querySelectorAll(".side-block");
+  if (blocks.length) blocks[blocks.length - 1].remove();
+  sidebarRoot.appendChild(el("div", { class: "side-block" }, [
+    el("div", { class: "side-title", text: "Timeline" }),
+    el("ul", { class: "timeline" }, [
+      el("li", { class: "done", text: "Quiz generated" }),
+      el("li", { class: "done", text: "Answered locally" }),
+      el("li", { class: "done", text: "Graded" }),
+      el("li", { class: "now", text: "Published to PR" }),
+    ]),
+  ]));
+}
+
+function renderReviewbarPublished(commentUrl) {
+  reviewbar.className = "reviewbar is-published";
+  reviewbar.innerHTML = "";
+  reviewbar.appendChild(el("div", { class: "reviewbar__msg" }, [
+    el("span", { class: "checkpill", text: "published" }),
+    " Scorecard live on the PR.",
+  ]));
+  reviewbar.appendChild(el("div", { class: "reviewbar__spacer" }));
+  reviewbar.appendChild(el("a", {
+    class: "btn btn--external",
+    href: commentUrl,
+    target: "_blank",
+    rel: "noopener",
+    text: "Open on GitHub ↗",
+  }));
+}
+
+function renderPublished(results, commentUrl) {
+  // prepend banner to the existing results layout
+  questionsRoot.insertBefore(renderBanner(commentUrl), questionsRoot.firstChild);
+  renderSidebarPublished(results);
+  renderReviewbarPublished(commentUrl);
+}
+
 async function publishResults() {
-  // implemented in Task 7
-  console.log("publish pending", lastResults);
+  if (!lastResults) return;
+  const btn = reviewbar.querySelector("button.btn--primary");
+  btn.disabled = true;
+  btn.textContent = "Publishing…";
+  const resp = await fetch("/publish", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(lastResults),
+  });
+  if (!resp.ok) {
+    btn.disabled = false;
+    btn.textContent = "Publish to PR";
+    alert(`Publish failed: ${resp.status}`);
+    return;
+  }
+  const data = await resp.json();
+  renderPublished(lastResults, data.comment_url);
 }
 
 renderQuestions();

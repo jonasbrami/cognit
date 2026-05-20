@@ -84,3 +84,36 @@ def test_submit_renders_results(live_server, page) -> None:
     # reviewbar swapped to publish state
     bar = page.locator("#reviewbar")
     assert "publish" in bar.text_content().lower()
+
+
+def test_publish_renders_success_banner(live_server, page) -> None:
+    base, posted = live_server
+    page.goto(base, wait_until="networkidle")
+
+    # answer + submit
+    page.locator("#questions-root .file").nth(0).locator(".option").nth(1).click()
+    page.locator("#questions-root .file").nth(1).locator(".diagram").first.click()
+    page.locator("#questions-root .file").nth(2).locator("textarea").fill("answer")
+    page.locator("#questions-root .file").nth(3).locator(".tf__cell").nth(1).click()
+    page.locator("#reviewbar button").get_by_text("Submit", exact=False).click()
+    page.wait_for_selector("#questions-root .summary", timeout=5000)
+
+    # publish
+    page.locator("#reviewbar button").get_by_text("Publish", exact=False).click()
+    page.wait_for_selector("#questions-root .banner", timeout=5000)
+
+    # banner contains a link to the comment_url returned by the fake post_comment
+    banner = page.locator("#questions-root .banner")
+    assert banner.is_visible()
+    link = banner.locator("a")
+    assert link.get_attribute("href") == "https://github.com/jonas/quizz/pull/142#issuecomment-9999"
+
+    # reviewbar flipped to published state
+    bar = page.locator("#reviewbar")
+    assert "is-published" in (bar.get_attribute("class") or "")
+    open_link = bar.locator("a").get_by_text("Open on GitHub", exact=False)
+    assert open_link.is_visible()
+
+    # markdown body was actually posted (FakeLLM doesn't render the markdown — the engine does)
+    assert len(posted) == 1
+    assert "/100" in posted[0] or "/ 100" in posted[0] or "score" in posted[0].lower()
