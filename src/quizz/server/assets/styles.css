@@ -44,8 +44,7 @@ a:hover { text-decoration: underline; }
   gap: 16px;
   font-size: 13px;
 }
-.topbar__logo,
-.topbar .logo {
+.topbar__logo {
   width: 20px; height: 20px;
   background: #fff;
   border-radius: 50%;
@@ -56,20 +55,12 @@ a:hover { text-decoration: underline; }
   font-weight: 600;
   color: #fff;
 }
-.topbar .nav { display: flex; gap: 16px; color: #ffffffc4; font-weight: 500; }
-.topbar .nav a { color: inherit; }
-.topbar__spacer,
-.topbar .spacer { flex: 1; }
+.topbar__spacer { flex: 1; }
 .topbar__pr-link {
   font-size: 12px;
   color: #ffffffc4;
 }
 .topbar__pr-link:hover { color: #fff; text-decoration: none; }
-.topbar .me {
-  width: 20px; height: 20px;
-  background: linear-gradient(135deg, #ff7a45, #b34a2a);
-  border-radius: 50%;
-}
 
 /* repohead ───────────────────────────────────────────────────────── */
 .repohead {
@@ -77,29 +68,11 @@ a:hover { text-decoration: underline; }
   border-bottom: 1px solid var(--border);
   padding: 18px 24px 0;
 }
-.repohead .breadcrumb,
-.repohead__title .breadcrumb {
-  font-size: 18px;
-  margin-bottom: 12px;
-}
-.repohead .breadcrumb a { font-weight: 400; }
-.repohead .breadcrumb b { font-weight: 600; }
-.repohead__title,
-.repohead .pr-title {
+.repohead__title {
   font-size: 26px;
   font-weight: 400;
   margin: 0 0 8px;
   color: var(--fg);
-}
-.repohead .pr-num { color: var(--fg-mute); font-weight: 300; }
-.repohead .pr-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding-bottom: 16px;
-  color: var(--fg-mute);
-  font-size: 13px;
-  flex-wrap: wrap;
 }
 .badge {
   display: inline-flex;
@@ -139,26 +112,10 @@ a:hover { text-decoration: underline; }
   gap: 6px;
   cursor: pointer;
 }
-.tab .count {
-  background: var(--bg-canvas);
-  border: 1px solid var(--border-soft);
-  padding: 1px 7px;
-  border-radius: 99px;
-  font-size: 11px;
-  color: var(--fg);
-}
-.tab.active,
 .tab.tab--active {
   border-bottom-color: var(--orange);
   color: var(--fg);
   font-weight: 600;
-}
-.tab .pip {
-  display: inline-block;
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--orange);
-  margin-right: 4px;
 }
 
 /* container ─────────────────────────────────────────────────────── */
@@ -498,6 +455,11 @@ textarea.open:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 
 .progress span.cur,
 .progress__dot.cur { background: var(--blue); }
 .progress-text { color: var(--fg-mute); font-size: 12px; }
+.side-text {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--fg-mute);
+}
 
 .sidelist { list-style: none; padding: 0; margin: 0; }
 .sidelist li {
@@ -720,11 +682,8 @@ textarea.open:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 
    .reviewbar.is-submit    → base (neutral): used when answering questions, primary = "Submit quiz"
    .reviewbar.is-publish   → base (neutral): used after grading, primary = "Publish to PR"
    .reviewbar.is-published → green-tinted:   used after publishing, primary = "Open on GitHub"
-   submit and publish share the base treatment; only is-published adds the green chrome */
-.reviewbar.is-submit, .reviewbar.is-publish {
-  /* neutral state — base reviewbar styles apply. JS toggles these classes to
-     enable hook points for state-specific overrides without changing chrome. */
-}
+   submit and publish share the base treatment; only is-published adds the green chrome.
+   JS toggles these classes to enable hook points for state-specific overrides without changing chrome. */
 .reviewbar {
   position: sticky;
   bottom: 0;
@@ -763,8 +722,7 @@ textarea.open:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 
   color: var(--fg);
   gap: 12px;
 }
-.reviewbar__spacer,
-.reviewbar .spacer { flex: 1; }
+.reviewbar__spacer { flex: 1; }
 
 /* checkpill — green published indicator */
 .checkpill {
@@ -828,7 +786,6 @@ textarea.open:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 
 @media (max-width: 700px) {
   .diagrams { grid-template-columns: 1fr; }
   .reviewbar { padding: 12px 16px; gap: 10px; }
-  .reviewbar .spacer,
   .reviewbar__spacer { display: none; }
   .reviewbar__msg { flex: 1 1 100%; font-size: 12.5px; }
   .reviewbar .toggle { flex: 1 1 100%; margin-right: 0; font-size: 12px; }
