@@ -21,17 +21,31 @@ def _noop_llm() -> FakeLLM:
 
 
 def test_get_root_renders_quiz() -> None:
+    """The HTML shell loads with the github-native chrome and embeds the quiz JSON."""
     app = build_app(
         quiz=_sample_quiz(),
         pr_url="https://github.com/o/r/pull/42",
         llm=_noop_llm(),
-        post_comment=lambda md: "https://x/y#unused",
+        post_comment=lambda md: "https://x/y#1",
     )
     client = TestClient(app)
     r = client.get("/")
     assert r.status_code == 200
-    assert "why?" in r.text
-    assert "<!doctype html>" in r.text.lower()
+    html = r.text
+    assert "<!doctype html>" in html.lower()
+    # quiz JSON is injected
+    assert '"pr_number": 42' in html or '"pr_number":42' in html
+    assert "why?" in html  # the q1 prompt
+    # github-native shell markers
+    assert 'class="topbar"' in html
+    assert 'class="repohead"' in html
+    assert 'class="tabs"' in html
+    assert 'id="questions-root"' in html
+    assert 'id="reviewbar"' in html
+    # the topbar says "quizz" not "GitHub" (decision #4)
+    assert ">quizz<" in html
+    # PR url linked in the header
+    assert "https://github.com/o/r/pull/42" in html
 
 
 def test_static_assets_served() -> None:
