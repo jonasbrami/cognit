@@ -423,14 +423,16 @@ function renderBanner(commentUrl) {
       el("h2", { text: "Posted to PR · just now" }),
       el("p", { text: "Scorecard is live as a comment on the PR. Collaborators can see the score." }),
     ]),
-    el("a", { class: "banner__cta", href: commentUrl, target: "_blank", rel: "noopener", text: "View comment ↗" }),
+    el("a", { class: "banner__cta", href: commentUrl, target: "_blank", rel: "noopener", text: "View comment" }),
   ]);
 }
 
 function renderSidebarPublished(results) {
   // keep score block + per-question list, replace Visibility with Timeline
   renderSidebarResults(results);
-  // remove the Visibility block (last side-block) and append Timeline
+  // ASSUMES: renderSidebarResults's LAST side-block is the Visibility block.
+  // If you add a new block to renderSidebarResults, append it BEFORE Visibility,
+  // or this will silently rip out the wrong block.
   const blocks = sidebarRoot.querySelectorAll(".side-block");
   if (blocks.length) blocks[blocks.length - 1].remove();
   sidebarRoot.appendChild(el("div", { class: "side-block" }, [
@@ -457,7 +459,7 @@ function renderReviewbarPublished(commentUrl) {
     href: commentUrl,
     target: "_blank",
     rel: "noopener",
-    text: "Open on GitHub ↗",
+    text: "Open on GitHub",
   }));
 }
 

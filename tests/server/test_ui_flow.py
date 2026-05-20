@@ -113,6 +113,8 @@ def test_publish_renders_success_banner(live_server, page) -> None:
     assert "is-published" in (bar.get_attribute("class") or "")
     open_link = bar.locator("a").get_by_text("Open on GitHub", exact=False)
     assert open_link.is_visible()
+    # the old Publish button should be gone — the reviewbar was REPLACED, not appended to
+    assert bar.locator("button").count() == 0
 
     # markdown body was actually posted (FakeLLM doesn't render the markdown — the engine does)
     assert len(posted) == 1
