@@ -456,8 +456,7 @@ textarea.open:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 
   border-radius: 6px;
   overflow: hidden;
 }
-.tf__cell,
-.tf > div {
+.tf__cell {
   padding: 8px 22px;
   cursor: pointer;
   font-size: 13.5px;
@@ -467,10 +466,8 @@ textarea.open:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 
   align-items: center;
   gap: 6px;
 }
-.tf__cell:last-child,
-.tf > div:last-child { border-right: none; }
-.tf__cell.sel,
-.tf > div.sel { background: var(--blue); color: #fff; font-weight: 500; }
+.tf__cell:last-child { border-right: none; }
+.tf__cell.sel { background: var(--blue); color: #fff; font-weight: 500; }
 
 /* sidebar ───────────────────────────────────────────────────────── */
 .sidebar { font-size: 13px; }
@@ -719,10 +716,15 @@ textarea.open:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 
 .banner__cta::after { content: "↗"; }
 
 /* reviewbar ─────────────────────────────────────────────────────── */
-/* Sticky bottom bar. Three variants by class:
-   .reviewbar.is-submit   — neutral bg, Submit quiz primary btn
-   .reviewbar.is-publish  — neutral bg, Discard ghost + Publish primary
-   .reviewbar.is-published — green gradient bg, checkpill + Delete ghost + Open external */
+/* reviewbar ─── three variants by class:
+   .reviewbar.is-submit    → base (neutral): used when answering questions, primary = "Submit quiz"
+   .reviewbar.is-publish   → base (neutral): used after grading, primary = "Publish to PR"
+   .reviewbar.is-published → green-tinted:   used after publishing, primary = "Open on GitHub"
+   submit and publish share the base treatment; only is-published adds the green chrome */
+.reviewbar.is-submit, .reviewbar.is-publish {
+  /* neutral state — base reviewbar styles apply. JS toggles these classes to
+     enable hook points for state-specific overrides without changing chrome. */
+}
 .reviewbar {
   position: sticky;
   bottom: 0;
