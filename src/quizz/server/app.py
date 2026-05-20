@@ -1,5 +1,7 @@
 """Local FastAPI app for `quizz take`."""
 
+import html as _html
+import json as _json
 from collections.abc import Callable
 from pathlib import Path
 
@@ -27,7 +29,7 @@ def build_app(
     quiz: Quiz,
     pr_url: str,
     llm: LLMClient,
-    post_comment: Callable[[str], None],
+    post_comment: Callable[[str], str],  # returns the comment's html_url
 ) -> FastAPI:
     """Build the FastAPI app for `quizz take`.
 
@@ -48,10 +50,21 @@ def build_app(
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
+        # Escape </ so a question prompt containing </script> can't close the inline script tag.
+        safe_quiz_json = quiz.model_dump_json().replace("</", "<\\/")
+        # pr_url needs two escaped forms:
+        #   __PR_URL_ATTR__ → for href="..." attributes (HTML-escaped)
+        #   __PR_URL_JS__   → for window.PR_URL = ...; (JSON-encoded JS string literal incl. quotes)
+        pr_url_attr = _html.escape(pr_url, quote=True)
+        # json.dumps quotes the string and backslash-escapes internal quotes.
+        # We also replace any bare < with < so the HTML parser never sees
+        # a <script> or </script> tag sequence inside the inline script block.
+        pr_url_js = _json.dumps(pr_url).replace("<", "\\u003c")
         html = (
             index_template.replace("__PR__", str(quiz.pr_number))
-            .replace("__PR_URL__", pr_url)
-            .replace("__QUIZ_JSON__", quiz.model_dump_json())
+            .replace("__PR_URL_ATTR__", pr_url_attr)
+            .replace("__PR_URL_JS__", pr_url_js)
+            .replace("__QUIZ_JSON__", safe_quiz_json)
         )
         return HTMLResponse(html)
 
@@ -67,7 +80,9 @@ def build_app(
     async def publish(req: Request) -> JSONResponse:
         body = await req.json()
         results = Results.model_validate(body)
-        post_comment(render_results(results))
-        return JSONResponse({"ok": True, "total_score": results.total_score})
+        comment_url = post_comment(render_results(results))
+        return JSONResponse(
+            {"ok": True, "total_score": results.total_score, "comment_url": comment_url}
+        )
 
     return app

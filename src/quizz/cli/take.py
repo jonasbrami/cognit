@@ -52,7 +52,7 @@ def _serve_blocking(
     quiz: Quiz,
     pr_url: str,
     llm: LLMClient,
-    post_comment_fn: Callable[[str], None],
+    post_comment_fn: Callable[[str], str],
 ) -> None:
     """Build the FastAPI app, launch the browser, run uvicorn until killed."""
     app = build_app(quiz=quiz, pr_url=pr_url, llm=llm, post_comment=post_comment_fn)

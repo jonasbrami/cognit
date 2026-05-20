@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+### Changed
+- **UI redesign**: `quizz take` now uses a github-native design — replaces the editorial (paper/serif/narrow) UI. Spec in `UI-REDESIGN.md`.
+
+### Added
+- `/publish` endpoint now returns `comment_url` so the UI can deep-link to the posted comment.
+- Playwright integration tests in `tests/server/test_ui_flow.py` driving the question → results → published flow.
+
+### Fixed
+- XSS hardening: quiz JSON injected into inline `<script>` is `</`-escaped; PR URL substituted into `href=` attributes and the JS global is properly HTML/JSON escaped.
+- Mermaid `securityLevel` changed from `"loose"` to `"strict"` — prevents HTML rendering inside LLM-generated node labels.
+- Inline backtick-code rendering in prompts (regression from the rewrite).
+- Submit button is disabled until all questions are answered.
+- Keyboard navigation + ARIA on MCQ / TF / Diagram options (a11y regression from the rewrite).
+
 ### Removed
 - **GitHub Actions wrappers** (`actions/quizz-generate`, `actions/quizz-grade`) and the matching `.github/examples/` workflows. They were prototyped end-to-end but hit two compounding issues with GitHub Models (strict schema rejection + malformed free-form output from `gpt-4o-mini`). v1 ships as **local CLI only**; the auto-trigger Action is deferred to v2 (see `INTENTS.md` → Future vision).
 
