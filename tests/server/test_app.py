@@ -199,7 +199,14 @@ def test_quiz_json_escapes_close_script() -> None:
     """Question prompts containing </script> must not break out of the inline script tag."""
     hazardous = Quiz(
         pr_number=1,
-        questions=[MCQQuestion(id="q1", prompt="What about </script><script>alert(1)</script>?", options=["A", "B"], answer="A")],
+        questions=[
+            MCQQuestion(
+                id="q1",
+                prompt="What about </script><script>alert(1)</script>?",
+                options=["A", "B"],
+                answer="A",
+            )
+        ],
     )
     app = build_app(
         quiz=hazardous,
@@ -231,7 +238,7 @@ def test_pr_url_is_escaped_in_attr_and_js() -> None:
     # the literal break-out sequence must not appear in the document
     assert '"><script>alert' not in html
     # and the angle-bracket form (raw) is also absent
-    assert '<script>alert(1)</script>' not in html
+    assert "<script>alert(1)</script>" not in html
 
 
 def test_publish_returns_comment_url() -> None:

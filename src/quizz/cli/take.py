@@ -1,4 +1,5 @@
-"""`quizz take` — user-facing command. Opens a browser quiz over the PR's quiz comment."""
+"""`quizz take` — the only command. Generates a quiz on the PR if none exists,
+opens the browser quiz, grades in-session, optional publish."""
 
 import json
 import socket
@@ -9,12 +10,17 @@ from collections.abc import Callable
 
 import typer
 import uvicorn
+from anthropic import APIError as AnthropicAPIError
+from pydantic import ValidationError
 
 from quizz.comment.parse import parse_quiz, parse_results
+from quizz.comment.render import render_quiz
+from quizz.engine.generate import generate_quiz
 from quizz.engine.llm import LLMClient
 from quizz.engine.llm_anthropic import AnthropicLLM
 from quizz.engine.models import Quiz
-from quizz.ghio.pr import find_latest_marker_comment, post_comment
+from quizz.ghio.diff import fetch_diff_and_files, read_file_at_head
+from quizz.ghio.pr import fetch_pr_info, find_latest_marker_comment, post_comment
 from quizz.server.app import build_app
 
 _MARKER_QUIZ = "<!-- quizz:quiz v1 -->"
@@ -63,7 +69,60 @@ def _serve_blocking(
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
-def _run_take_flow(pr_url: str, show_results_only: bool, llm: LLMClient) -> None:
+def _generate_and_post(
+    pr_url: str,
+    llm: LLMClient,
+    model: str,
+    min_diff_lines: int,
+    max_diff_lines: int,
+) -> str | None:
+    """Generate a quiz from the PR's diff and post it as a PR comment.
+
+    Returns the rendered markdown of the posted comment, or None if the PR was
+    skipped (`quiz: skip` in body, diff smaller than min, diff larger than max).
+    """
+    info = fetch_pr_info(pr_url)
+    if "quiz: skip" in info.body.lower():
+        typer.echo("quiz: skip in PR body — skipping.")
+        return None
+    diff, files = fetch_diff_and_files(pr_url, fetch_file_contents=read_file_at_head)
+    diff_lines = diff.count("\n")
+    if diff_lines < min_diff_lines:
+        typer.echo(f"diff is {diff_lines} lines (< {min_diff_lines}) — skipping.")
+        return None
+    if diff_lines > max_diff_lines:
+        typer.echo(f"diff is {diff_lines} lines (> {max_diff_lines}) — skipping.")
+        return None
+    try:
+        quiz = generate_quiz(
+            diff=diff,
+            pr_title=info.title,
+            pr_body=info.body,
+            files=files,
+            pr_number=info.number,
+            llm=llm,
+            model=model,
+        )
+    except AnthropicAPIError as e:
+        typer.echo(f"LLM call failed: {type(e).__name__}: {e}", err=True)
+        raise typer.Exit(code=1) from None
+    except ValidationError as e:
+        typer.echo(f"LLM returned malformed quiz: {e}", err=True)
+        raise typer.Exit(code=1) from None
+    md = render_quiz(quiz)
+    post_comment(pr_url, md)
+    typer.echo("quiz comment posted to PR.")
+    return md
+
+
+def _run_take_flow(
+    pr_url: str,
+    show_results_only: bool,
+    llm: LLMClient,
+    model: str = "claude-sonnet-4-6",
+    min_diff_lines: int = 50,
+    max_diff_lines: int = 2000,
+) -> None:
     if show_results_only:
         results_md = find_latest_marker_comment(pr_url, _MARKER_RESULTS)
         if results_md is None:
@@ -74,8 +133,16 @@ def _run_take_flow(pr_url: str, show_results_only: bool, llm: LLMClient) -> None
 
     quiz_md = find_latest_marker_comment(pr_url, _MARKER_QUIZ)
     if quiz_md is None:
-        typer.echo("no quiz comment found on this PR — run `quizz generate --pr ... --post` first.")
-        raise typer.Exit(code=1)
+        typer.echo("no quiz on this PR yet — generating one...")
+        quiz_md = _generate_and_post(
+            pr_url,
+            llm=llm,
+            model=model,
+            min_diff_lines=min_diff_lines,
+            max_diff_lines=max_diff_lines,
+        )
+        if quiz_md is None:
+            return
     quiz = parse_quiz(quiz_md)
     _serve_blocking(
         quiz,
@@ -89,10 +156,19 @@ def run(
     pr: str | None,
     show_results: bool,
     model: str = "claude-sonnet-4-6",
+    min_diff_lines: int = 50,
+    max_diff_lines: int = 2000,
 ) -> None:
     pr_url = pr or _detect_pr_from_branch()
     if pr_url is None:
         typer.echo("error: no PR detected from current branch; pass --pr <url>")
         raise typer.Exit(code=1)
     llm = _make_llm(model)
-    _run_take_flow(pr_url, show_results_only=show_results, llm=llm)
+    _run_take_flow(
+        pr_url,
+        show_results_only=show_results,
+        llm=llm,
+        model=model,
+        min_diff_lines=min_diff_lines,
+        max_diff_lines=max_diff_lines,
+    )

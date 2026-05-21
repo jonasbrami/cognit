@@ -4,23 +4,23 @@
 
 ## What this is
 
-A local CLI that quizzes the **author** of a pull request (not the reviewer) on the code they're about to merge. Three subcommands:
+A local CLI that quizzes the **author** of a pull request (not the reviewer) on the code they're about to merge. One command:
 
-- `quizz generate --pr <url> --post` — calls an LLM, generates a quiz from the diff, posts it as a PR comment.
-- `quizz take` — auto-detects the PR for the current branch, opens the quiz in your local browser (mermaid diagrams render via `mermaid.js`), posts answers back to the PR.
-- `quizz grade --pr <url>` — LLM-grades the open question, posts a results comment with per-question feedback.
+- `quizz take` — auto-detects the PR for the current branch, generates a quiz from the diff if none exists yet (calls an LLM, posts the quiz as a PR comment), opens the quiz in your local browser, grades everything in-session, and lets you optionally publish the results back to the PR.
 
 Like CI checks, linters, or pre-commit hooks: opt-in. Failing doesn't block merge — the value is the "aha" moment when you realize the code does something you didn't expect.
 
-> v1 ships as a local CLI only. The GitHub Actions wrapper that would auto-trigger the quiz on PR open is **not part of this release** — see `INTENTS.md` for the v2 roadmap.
+> v1 ships as a local CLI only. The GitHub Actions wrapper that would auto-trigger the quiz on PR open is **not on the roadmap** — see `INTENTS.md`.
 
 ## How it works
 
 1. You open a PR.
-2. From a checkout of the PR branch, run `quizz generate --pr <url> --post`. The CLI reads the diff via `gh`, calls an LLM (Claude via the Anthropic SDK; Claude Code OAuth or `ANTHROPIC_API_KEY`), and posts a structured quiz comment to the PR with 5 questions: 2 MCQ, 1 mermaid-diagram-pick, 1 open, 1 true/false.
-3. Run `quizz take`. It fetches the quiz comment, opens `localhost` in your browser with a polished form (mermaid diagrams rendered client-side). You answer, hit Submit.
-4. The CLI grades the deterministic questions immediately, posts an answers comment to the PR.
-5. Run `quizz grade --pr <url>`. The LLM grades the open question, posts a results comment with per-question feedback. Your browser polls and shows the final score.
+2. From a checkout of the PR branch, run `quizz take`. The CLI:
+   - Auto-detects the PR for the current branch via `gh`.
+   - If no quiz comment exists yet on the PR: reads the diff, calls an LLM (Claude via the Anthropic SDK; Claude Code OAuth or `ANTHROPIC_API_KEY`), and posts a structured quiz comment to the PR. The LLM picks question count and type-mix based on diff complexity (typically 2–10 questions across MCQ, mermaid-pick, open, true/false).
+   - Opens `localhost` in your browser with a polished form (mermaid diagrams rendered client-side).
+3. You answer, hit Submit. Everything is graded in-session: MCQ / mermaid / TF deterministically; the open question is LLM-graded against a rubric the generator wrote.
+4. You see results inline in the browser. If you want a record on the PR, click **Publish results to PR**. If you don't, nothing is posted.
 
 ## Quickstart
 
@@ -50,22 +50,21 @@ Also make sure you have:
 
 ```bash
 # from a checkout of your PR branch
-quizz generate --pr "$(gh pr view --json url --jq .url)" --post
 quizz take
-# answer in browser, submit
-quizz grade --pr "$(gh pr view --json url --jq .url)"
+# answer in browser, submit, optionally publish
 ```
 
 ## Configuration
 
-All three subcommands accept:
+`quizz take` accepts:
 
 | Flag | Default | Description |
 |---|---|---|
-| `--llm` | `auto` | `auto` / `anthropic` / `github`. `auto` picks Anthropic if a key or Claude Code OAuth is available. |
-| `--model` | `gpt-4o-mini` (or `claude-sonnet-4-6` when provider=anthropic) | LLM model |
-
-`quizz generate` additionally accepts `--min-diff-lines` (default 50), `--max-diff-lines` (2000), and `--dry-run`.
+| `--pr` | (auto-detect from current branch) | PR URL or number. |
+| `--model` | `claude-sonnet-4-6` | Anthropic model name. |
+| `--min-diff-lines` | 50 | Skip auto-generation if the diff is smaller than this. |
+| `--max-diff-lines` | 2000 | Skip auto-generation if the diff is larger than this. |
+| `--show-results` | (off) | Print the latest results comment as JSON instead of opening the browser. |
 
 To suppress quiz generation on a specific PR, include `quiz: skip` in the PR description.
 
@@ -73,18 +72,18 @@ To suppress quiz generation on a specific PR, include `quiz: skip` in the PR des
 
 - **Claude Code OAuth path**: bound by your Claude Code subscription limits (per-model RPM/daily).
 - **API key path**: standard Anthropic API limits.
-- The GitHub Models adapter (`--llm github`) is included for completeness but is **not the recommended path** — see `INTENTS.md` for why.
+
+Anthropic is the only supported provider in v1.
 
 ## Status
 
 v1.0 ships:
-- Local `quizz generate`, `quizz take`, `quizz grade` CLI commands.
+- A single CLI command: `quizz take`. Generates the quiz on first run, opens the browser, grades in-session, opt-in publish.
 - 4 question types (MCQ, mermaid-pick with auto-neutralized A/B/C/D labels, open, true/false).
 - Anthropic adapter via tool use (guaranteed-schema output) with Claude Code OAuth fallback.
 - Local FastAPI server with embedded HTML/JS/CSS + `mermaid.js` UMD bundle.
 
 Future (see [`INTENTS.md`](INTENTS.md)):
-- GitHub Action auto-trigger on PR open (removed from v1 — local CLI is the canonical path for now).
 - GitHub App (no per-repo workflow file).
 - Fleet of LLMs for question diversity.
 - Skills integration (team domain knowledge in generation prompts).

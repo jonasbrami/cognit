@@ -20,7 +20,7 @@ from importlib import resources
 from pathlib import Path
 from typing import Any, NoReturn, cast
 
-from anthropic import Anthropic
+from anthropic import Anthropic, AuthenticationError
 from anthropic.types import CacheControlEphemeralParam, TextBlockParam, ToolParam, ToolUseBlock
 
 from quizz.engine.llm import GenerateRequest
@@ -124,18 +124,40 @@ class AnthropicLLM:
     ) -> None:
         self._model = model
         self._max_tokens = max_tokens
+        self._api_key = api_key or os.environ.get("ANTHROPIC_API_KEY") or None
+        self._client = self._make_client()
 
-        resolved_api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
-        if resolved_api_key:
-            self._client = Anthropic(api_key=resolved_api_key)
-        else:
-            oauth_token = _load_claude_code_oauth()
-            if oauth_token is None:
-                _no_anthropic_credentials()
-            self._client = Anthropic(
-                auth_token=oauth_token,
-                default_headers={"anthropic-beta": _OAUTH_BETA_HEADER},
-            )
+    def _make_client(self) -> Anthropic:
+        """(Re-)build the Anthropic client from current credentials.
+
+        Called on __init__ and again from `_messages_create` on a 401 — Claude Code
+        rotates the OAuth token in `~/.claude/.credentials.json` while a long-running
+        process holds an in-memory client built from the older token. API-key auth
+        is rebuilt the same way for symmetry but never actually re-reads anything.
+        """
+        if self._api_key:
+            return Anthropic(api_key=self._api_key)
+        oauth_token = _load_claude_code_oauth()
+        if oauth_token is None:
+            _no_anthropic_credentials()
+        return Anthropic(
+            auth_token=oauth_token,
+            default_headers={"anthropic-beta": _OAUTH_BETA_HEADER},
+        )
+
+    def _messages_create(self, **kwargs: Any) -> Any:
+        """`messages.create` with auto-recovery from OAuth token rotation.
+
+        On a 401 with OAuth auth, re-read credentials, rebuild the client, retry once.
+        With API-key auth a 401 is a real configuration error — re-raise immediately.
+        """
+        try:
+            return self._client.messages.create(**kwargs)
+        except AuthenticationError:
+            if self._api_key:
+                raise
+            self._client = self._make_client()
+            return self._client.messages.create(**kwargs)
 
     # --- Stage 1: outline ---
 
@@ -152,7 +174,7 @@ class AnthropicLLM:
             "description": "Submit the generated quiz outline.",
             "input_schema": QuizOutline.model_json_schema(),
         }
-        resp = self._client.messages.create(
+        resp = self._messages_create(
             model=self._model,
             max_tokens=self._max_tokens,
             system=[_system_block(system)],
@@ -200,7 +222,7 @@ class AnthropicLLM:
                 "additionalProperties": False,
             },
         }
-        resp = self._client.messages.create(
+        resp = self._messages_create(
             model=self._model,
             max_tokens=2048,
             system=[_system_block(system)],
@@ -233,7 +255,7 @@ class AnthropicLLM:
                 "additionalProperties": False,
             },
         }
-        resp = self._client.messages.create(
+        resp = self._messages_create(
             model=self._model,
             max_tokens=1024,
             system=[_system_block(system)],

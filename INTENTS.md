@@ -29,91 +29,68 @@ Developers increasingly rely on AI tools to write and review code, which creates
 
 ## Architecture
 
-Three CLI subcommands, one PR thread:
+One CLI command, one PR thread:
 
 ```
-┌──────────────────────────┐
-│  `quizz generate --post` │     1. author runs it after opening PR
-│  (CLI, local)            │ ──────────────────►  posts quiz comment
-└──────────────────────────┘                      (markdown + JSON state)
-                                                          │
-                                                          ▼
-                                              ┌────────────────────────┐
-                                              │  PR comment (the quiz) │
-                                              │  ─ rendered questions  │
-                                              │  ─ mermaid native      │
-                                              │  ─ JSON state block    │
-                                              └────────────────────────┘
-                                                          │
-                            2. author runs `quizz take`   │
-                                                          ▼
-┌──────────────────────────┐                ┌────────────────────────┐
-│  `quizz take` (CLI)      │                │  PR (via gh CLI)       │
-│  ─ reads quiz comment    │ ◄────────────► │  read & write          │
-│  ─ opens browser UI      │                │  comments              │
-│  ─ grades everything     │                └────────────────────────┘
-│    in-session (det + LLM)│                            ▲
-│  ─ shows results inline  │                            │
-└─────────────┬────────────┘                            │
-              │                                         │
-              │ 3. user clicks "Publish results to PR"  │
-              │    (opt-in — nothing posted on submit)  │
-              ▼                                         │
-        POST /publish ──────────────────────────────────┘
-                                              ┌────────────────────────┐
-                                              │  PR comment (results)  │
-                                              │  ─ total + per-Q score │
-                                              │  ─ open-Q LLM feedback │
-                                              └────────────────────────┘
+┌────────────────────────────────────┐
+│  `quizz take` (CLI, local)         │
+│                                    │
+│  1. detect PR from current branch  │
+│  2. if no quiz comment on PR yet:  │
+│     fetch diff, call LLM,          │ ──────────► posts quiz comment
+│     post quiz comment              │             (markdown + JSON state)
+│                                    │                       │
+│  3. read quiz comment ◄────────────┼───────────────────────┘
+│  4. open browser UI                │
+│  5. grade everything in-session    │             ┌────────────────────────┐
+│     (det. + LLM open-Q grading)    │             │  PR comment (the quiz) │
+│  6. show results inline            │             │  ─ rendered questions  │
+└─────────────┬──────────────────────┘             │  ─ mermaid native      │
+              │                                    │  ─ JSON state block    │
+              │ 7. user clicks "Publish results"   └────────────────────────┘
+              │    (opt-in — nothing posted on submit)
+              ▼
+        POST /publish ──────────────────────────►  ┌────────────────────────┐
+                                                   │  PR comment (results)  │
+                                                   │  ─ total + per-Q score │
+                                                   │  ─ open-Q LLM feedback │
+                                                   └────────────────────────┘
 ```
-
-(`quizz grade` still exists as a separate CLI for retroactive grading — reads an existing answers comment and posts a results comment — but is no longer part of the primary flow. Most users go from `quizz take` straight to the Publish button.)
 
 Everything that needs to be persisted is a PR comment. No state branches, no workflow artifacts crossing runs, no external storage.
 
 ## Components
 
-### `quizz generate` CLI
-
-- Invocation: `quizz generate --pr <url-or-number> [--post] [--dry-run]` from a checkout of the PR branch.
-- Skips if diff < 50 lines or > 2000 lines, or if PR body contains `quiz: skip`.
-- Steps:
-  1. Fetch PR title, body via `gh pr view`; diff via `gh pr diff`; touched-file contents via `git show HEAD:<path>`.
-  2. Call the configured LLM provider (Anthropic via tool use by default; Claude Code OAuth or `ANTHROPIC_API_KEY`) with a prompt that asks it to **decide both the count and the type-mix** based on diff size and complexity. A typo fix gets 2–3 probes; a 500-line refactor with new abstractions might warrant 8 or more. Question types: `mcq` (facts/invariants), `mermaid` (control or data flow — generated as 1 correct + 3 plausible-but-wrong variants in uniform style), `open` (LLM-graded against a rubric), `tf` (subtle behavioral claims).
-  3. Validate mermaid diagrams with `@mermaid-js/mermaid-cli` parse pass (skip silently if not installed); retry the whole generation on failure (max 2 retries); drop mermaid Q as last resort.
-  4. Post-process mermaid options to neutral A/B/C/D labels (prevents accidental answer leak from semantic labels like `correct`/`wrong_1`).
-  5. Render the markdown comment and post it to the PR via `gh pr comment` (when `--post`).
-
 ### `quizz take` CLI
 
 - Auth: uses local `gh auth login` for PR I/O. LLM auth via Claude Code OAuth (`~/.claude/.credentials.json`) or `ANTHROPIC_API_KEY`. Anthropic is the only supported provider in v1.
-- Invocation: `quizz take [--pr <url-or-number>] [--model <name>]`. Auto-detects PR from current branch.
+- Invocation: `quizz take [--pr <url-or-number>] [--model <name>] [--min-diff-lines N] [--max-diff-lines N]`. Auto-detects PR from current branch.
 - Steps:
   1. Find the latest `<!-- quizz:quiz v1 -->` comment in the target PR via `gh pr view --json comments`.
-  2. Parse the embedded JSON state.
-  3. Spin up a local HTTP server (FastAPI + uvicorn, 127.0.0.1 only, random unused port), open the URL in the default browser.
-  4. Browser renders the quiz with `mermaid.js` (real diagram rendering, not GitHub's markdown view), real form controls for MCQ, a textarea for the open question. UI aesthetic: editorial paper-and-ink, Fraunces serif headline with a rust accent, blueprint-styled mermaid options, margin-rail ordinals (i, ii, iii…) per question. Designed to feel like a printed diagnostic, not a SaaS form.
-  5. On submit (POST `/submit`):
+  2. **If no quiz comment exists yet, auto-generate one:**
+     - Fetch PR title, body via `gh pr view`; diff via `gh pr diff`; touched-file contents via `git show HEAD:<path>`.
+     - Skip if diff < `--min-diff-lines` (default 50), > `--max-diff-lines` (default 2000), or if PR body contains `quiz: skip`.
+     - Call the LLM with a prompt that asks it to **decide both the count and the type-mix** based on diff size and complexity. A typo fix gets 2–3 probes; a 500-line refactor with new abstractions might warrant 8 or more. Question types: `mcq` (facts/invariants), `mermaid` (control or data flow — generated as 1 correct + 3 plausible-but-wrong variants in uniform style), `open` (LLM-graded against a rubric), `tf` (subtle behavioral claims).
+     - Validate mermaid diagrams with `@mermaid-js/mermaid-cli` parse pass (skip silently if not installed); retry per-question on failure (max 2 retries); drop mermaid Q as last resort.
+     - Post-process mermaid options to neutral A/B/C/D labels (prevents accidental answer leak from semantic labels like `correct`/`wrong_1`).
+     - Render the markdown comment and post it to the PR via `gh pr comment`.
+  3. Parse the embedded JSON state from the quiz comment.
+  4. Spin up a local HTTP server (FastAPI + uvicorn, 127.0.0.1 only, random unused port), open the URL in the default browser.
+  5. Browser renders the quiz with `mermaid.js` (real diagram rendering, not GitHub's markdown view), real form controls for MCQ, a textarea for the open question.
+  6. On submit (POST `/submit`):
      - Grade MCQ + mermaid + T/F deterministically against the answer key (which is in the JSON state, in plaintext — voluntary system).
      - LLM-grade the open question in-session.
      - Return the full `Results` JSON to the browser. **Nothing is posted to the PR yet.**
      - Browser renders the result panel inline: total score, per-question breakdown, open-question feedback in a blockquote.
-  6. On clicking "Publish results to PR" (POST `/publish`):
+  7. On clicking "Publish results to PR" (POST `/publish`):
      - Server posts the results comment via `gh pr comment`. Confirms via status text in the UI.
 - Stays alive until the user closes the browser tab or hits Ctrl-C.
+
+**One command, one diagnostic.** `quizz generate` and `quizz grade` existed in earlier versions as separate CLI commands; both were collapsed into `take` once it became clear that the only happy-path use case is the author running a single command after opening their PR. The engine layer (`engine/generate.py`, `engine/grade.py`) is still standalone — a future GitHub App or webhook receiver can call into it without going through the CLI.
 
 **Publishing is opt-in.** Solo devs can practice in private without leaving a trail; users who want a record click the button.
 
 **Who can run `quizz take`:** anyone with `gh` access to the repo. The CLI doesn't gate by PR-author identity; downstream consumers (you, the human) decide who runs the local CLI.
-
-### `quizz grade` CLI (retroactive)
-
-- Invocation: `quizz grade --pr <url-or-number> [--model <name>]`. Not part of the primary flow — `quizz take` now does in-session grading + opt-in publishing. Kept around for retroactive use cases (regrade an existing answers comment with a different model, or for CI-style scripts).
-- Steps:
-  1. Locate the latest quiz comment (`<!-- quizz:quiz v1 -->`) and answers comment (`<!-- quizz:answers v1 -->`) on the PR.
-  2. Parse both.
-  3. Re-grade MCQ + mermaid + T/F locally + call the LLM to grade the open question.
-  4. Render a results comment with `<!-- quizz:results v1 -->` marker and post via `gh pr comment`.
 
 ## Quiz comment format
 
@@ -199,13 +176,12 @@ PR-level escape hatches: `quiz: skip` in PR description suppresses generation en
 
 | Failure | Behavior |
 |---|---|
-| LLM call fails | Retry once with exponential backoff. If still fails, post a comment "Quiz generation failed: <err>. No retry needed — push to retrigger." Exit zero (PR is not blocked anyway). |
-| Mermaid syntax invalid in any candidate | Retry generation up to 2 times. If still invalid, drop the mermaid question, generate one additional MCQ. |
-| Diff too large | Skip generation, post comment "PR too large for auto-quiz; run `quizz take --diff-only` locally for a lean version." |
-| CLI can't find quiz comment | Print "No quiz found on this PR — run `quizz generate --pr <url> --post` first." |
+| Mermaid syntax invalid in any candidate | Retry per-question generation up to 2 times. If still invalid, drop the mermaid question. |
+| Diff smaller than `--min-diff-lines` | `take` prints `"diff is N lines (< min) — skipping."` and exits zero. No PR comment. |
+| Diff larger than `--max-diff-lines` | `take` prints `"diff is N lines (> max) — skipping."` and exits zero. No PR comment. |
+| `quiz: skip` in PR body | `take` prints `"quiz: skip in PR body — skipping."` and exits zero. No PR comment. |
 | LLM call fails (network, rate limit, validation) | CLI catches `AnthropicAPIError`/`ValidationError` and exits 1 with a friendly message. |
-| `quizz grade` runs but quiz or answers comment is missing | Print "missing quiz or answers comment — nothing to grade." and exit zero. |
-| Stale answers comment from a non-author | Currently no hard guard at the CLI layer; the human running `quizz grade` decides whether to publish. |
+| `--show-results` with no results comment | Print `"no results comment found on this PR."` and exit 1. |
 
 ## Testing strategy
 
@@ -219,7 +195,7 @@ PR-level escape hatches: `quiz: skip` in PR description suppresses generation en
 ## Non-goals (for v1)
 
 - No merge blocking. No Check Runs. No branch protection integration. (Opt-in philosophy — the discipline is taking the quiz, not being forced through it.)
-- **No GitHub Action auto-trigger.** Both the generator and grader Composite Actions were prototyped end-to-end and then deliberately removed before shipping. v1 is local-CLI only.
+- **No GitHub Action auto-trigger.** Composite Actions wrapping `quizz generate --post` were prototyped end-to-end and dropped — not deferred. The collapse to a single `quizz take` command means there's no separate generation entrypoint to wrap. A future automation surface would call the engine layer directly (webhook receiver, GitHub App).
 - No GitHub App / Marketplace listing. No hosted infrastructure. No SaaS.
 - No multi-LLM orchestration. Single provider — Anthropic (Claude SDK).
 - No team-specific knowledge injection (Skills). Single generic prompt for now.
@@ -237,12 +213,6 @@ A generation orchestrator that fans out to multiple providers (OpenAI, Anthropic
 ### Skills integration (team knowledge injection)
 A `.quizz/skills/` directory of markdown files in the repo, loaded into the generation prompt. Teams describe their codebase's invariants, conventions, and architectural choices; the quiz generator uses them to ask questions that reflect the team's reality rather than generic code-comprehension probes. **Why it matters:** this is the real differentiator vs. Gater — questions that know what's idiomatic for *this* codebase, not what's idiomatic in general. **What it adds:** a Skills loader, prompt-engineering work to weave Skills into the generation context, possibly a `quizz skills validate` CLI command.
 
-### GitHub Action auto-trigger
-The "PR opens → quiz appears in 60 seconds" UX needs a CI-side wrapper around `quizz generate --post`. We built this and ran it end-to-end on a private sandbox repo, but hit two compounding issues we chose not to fix for v1:
-1. GitHub Models rejects the Pydantic discriminated-union schema in strict structured-output mode.
-2. The free-form-JSON fallback path got malformed output from `gpt-4o-mini` (wrapped questions in class-name keys).
-   Both are fixable — switching the Action to require an `ANTHROPIC_API_KEY` secret + using tool-use would resolve them, at the cost of making the Action BYOK. Re-evaluate once the local CLI has been used in real teams long enough to know whether the auto-trigger is actually wanted, or whether the manual `quizz generate` step is fine.
-
 ### GitHub App graduation
 A Marketplace-installable GitHub App that wraps the same engine. Webhook receiver, hosted backend (Cloudflare Workers + D1 most likely), OAuth user identity, hosted SPA quiz UI reusing the same JS as the local CLI's browser view. **Why it matters:** teams that don't want a workflow file in every repo, or want centralized config across many repos. **What it adds:** ~3–4 weeks of plumbing (webhook handler, OAuth flow, DB schema, hosting, Marketplace listing). The engine itself stays the same — that's the whole point of the v1 design principles.
 
@@ -257,7 +227,6 @@ A Marketplace-installable GitHub App that wraps the same engine. Webhook receive
 - **CLI distribution.** Go binary via `go install`, Homebrew, or a GitHub-hosted releases page? Probably all three eventually, but the MVP picks one — likely `go install` for simplicity, given the audience is developers who already have a Go toolchain or are willing to install one.
 - **Mermaid distractor quality.** The "all four in uniform style" prompt may still leak the answer through subtle cues (LLMs often draw the "right" one more confidently). May need an explicit style-spec in the prompt and/or a post-hoc rewrite pass to normalize.
 - **Open-question rubric quality.** Generated rubrics are only as good as the LLM's understanding of the diff. Rubric-quality regression tests on a curated set of diffs are probably needed.
-- **`act` coverage for `issue_comment`-triggered workflows.** `act` supports it but the testing ergonomics aren't as clean as `pull_request` triggers. Document a local workflow for testing the grader.
 
 ---
 
