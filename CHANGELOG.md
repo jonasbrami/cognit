@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file. The format 
 - Playwright integration tests in `tests/server/test_ui_flow.py` driving the question → results → published flow.
 
 ### Fixed
+- **OAuth token rotation no longer 401s mid-session.** `AnthropicLLM` previously cached the Claude Code OAuth token at `__init__` and never re-read `~/.claude/.credentials.json`. A long-running `quizz take` (auto-generate → user answers → submit) would 401 on the grading call when `claude` rotated the token in between. The client now retries once on `AuthenticationError` with a freshly-read token, recovering automatically. API-key auth is unaffected — a 401 there is a real configuration problem and still bubbles up immediately.
 - XSS hardening: quiz JSON injected into inline `<script>` is `</`-escaped; PR URL substituted into `href=` attributes and the JS global is properly HTML/JSON escaped.
 - Mermaid `securityLevel` changed from `"loose"` to `"strict"` — prevents HTML rendering inside LLM-generated node labels.
 - Inline backtick-code rendering in prompts (regression from the rewrite).

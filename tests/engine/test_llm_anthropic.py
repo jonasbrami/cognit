@@ -203,6 +203,64 @@ def test_outline_request_pins_tool_schema_and_tool_choice(
 
 
 @respx.mock
+def test_oauth_token_rotation_recovers_via_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Claude Code rotates OAuth tokens in `~/.claude/.credentials.json` while quizz holds
+    an in-memory client built from the older token. On a 401, the client should re-read
+    credentials, rebuild, and retry once — so a long-running `quizz take` session doesn't
+    fail to grade just because the user's local credentials refreshed in the meantime."""
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    tokens = iter(["old-token", "new-token"])
+    monkeypatch.setattr(
+        "quizz.engine.llm_anthropic._load_claude_code_oauth",
+        lambda: next(tokens),
+    )
+    responses = iter(
+        [
+            httpx.Response(
+                401,
+                json={
+                    "type": "error",
+                    "error": {"type": "authentication_error", "message": "Invalid"},
+                },
+            ),
+            httpx.Response(
+                200, json=_tool_use_response(_TOOL_GRADE, {"score": 80, "feedback": "ok"})
+            ),
+        ]
+    )
+    route = respx.post("https://api.anthropic.com/v1/messages").mock(
+        side_effect=lambda req: next(responses)
+    )
+    llm = AnthropicLLM()
+    score, fb = llm.grade_open("why?", "r", "because")
+    assert route.call_count == 2
+    assert (score, fb) == (80, "ok")
+    assert llm._client.auth_token == "new-token"
+
+
+@respx.mock
+def test_api_key_auth_does_not_retry_on_401(monkeypatch: pytest.MonkeyPatch) -> None:
+    """API keys don't rotate — a 401 is a real configuration problem, not a recoverable
+    rotation. The retry path is OAuth-only; an API-key 401 must bubble up unchanged."""
+    from anthropic import AuthenticationError
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
+    route = respx.post("https://api.anthropic.com/v1/messages").mock(
+        return_value=httpx.Response(
+            401,
+            json={
+                "type": "error",
+                "error": {"type": "authentication_error", "message": "Invalid"},
+            },
+        )
+    )
+    llm = AnthropicLLM()
+    with pytest.raises(AuthenticationError):
+        llm.grade_open("why?", "r", "because")
+    assert route.call_count == 1
+
+
+@respx.mock
 def test_outline_and_mermaid_use_distinct_system_prompts(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
