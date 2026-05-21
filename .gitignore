@@ -26,3 +26,9 @@ wheels/
 
 # Environment files
 .env
+
+# Claude Code per-project state (sessions, agent runs, settings)
+.claude/
+
+# Node tooling (mermaid-cli installs here when used locally without -g)
+node_modules/
