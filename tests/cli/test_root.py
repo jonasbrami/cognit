@@ -13,5 +13,3 @@ def test_version():
 def test_help_lists_subcommands():
     result = runner.invoke(app, ["--help"])
     assert "take" in result.stdout
-    assert "generate" in result.stdout
-    assert "grade" in result.stdout

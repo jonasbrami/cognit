@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file. The format 
 ## [Unreleased]
 
 ### Changed
+- **BREAKING — CLI collapsed to a single `quizz take` command.** `take` now auto-generates the quiz comment on the PR if none exists yet (calls the LLM with the diff, posts the rendered markdown), then opens the browser and grades in-session as before. The author runs one command instead of three. New flags on `take`: `--min-diff-lines` (default 50) and `--max-diff-lines` (default 2000) inherit from the old `quizz generate`. The engine layer (`engine/generate.py`, `engine/grade.py`) is unchanged — a future webhook or GitHub App can still call it directly.
 - **UI redesign**: `quizz take` now uses a github-native design — replaces the editorial (paper/serif/narrow) UI. Spec in `UI-REDESIGN.md`.
 
 ### Added
@@ -19,7 +20,8 @@ All notable changes to this project will be documented in this file. The format 
 - Keyboard navigation + ARIA on MCQ / TF / Diagram options (a11y regression from the rewrite).
 
 ### Removed
-- **GitHub Actions wrappers** (`actions/quizz-generate`, `actions/quizz-grade`) and the matching `.github/examples/` workflows. They were prototyped end-to-end but hit two compounding issues with GitHub Models (strict schema rejection + malformed free-form output from `gpt-4o-mini`). v1 ships as **local CLI only**; the auto-trigger Action is deferred to v2 (see `INTENTS.md` → Future vision).
+- **BREAKING — `quizz generate` and `quizz grade` CLI commands.** Their behaviour is absorbed into `quizz take`: generation runs automatically when no quiz comment exists on the PR; grading runs in-session via the local FastAPI server. Tests for these CLI surfaces were deleted; engine-level tests for generation and grading remain intact.
+- **GitHub Actions wrappers** (`actions/quizz-generate`, `actions/quizz-grade`) and the matching `.github/examples/` workflows. They were prototyped end-to-end but hit two compounding issues with GitHub Models (strict schema rejection + malformed free-form output from `gpt-4o-mini`). v1 ships as **local CLI only**; the auto-trigger Action ambition is now **dropped, not deferred** — the CLI no longer exposes a separate `generate` entrypoint to wrap.
 
 ## [0.1.0] — 2026-05-17
 
