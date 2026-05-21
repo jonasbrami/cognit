@@ -102,6 +102,17 @@ We've all felt this outside software too. You think you understand a topic — u
 
 That's what `quizz` does, for code you're about to merge. The quiz is the diagnostic; the explanation of the right answer is the medicine. Human attention is precious — the north star is to use LLMs to *illuminate areas of non-comprehension* so the time you spend reading your own PR lands on what actually needs a human mind.
 
+**It's the inverse of the usual LLM coding flow.**
+
+> Coding with AI: *human writes prompt → LLM writes code.*
+> CDD: *LLM reads code → LLM writes prompts the human answers.*
+
+Same model, arrows flipped — and the loop closes on the only question that matters: does the code do what you *intended* it to do? CDD is intent alignment for humans, run by the same machinery that wrote the code in the first place.
+
+Call this **comprehension-driven development (CDD)**: a change isn't done until the author has been examined on it. Each question you grapple with — especially the ones you get wrong — is **comprehension credit** banked against the same debt Osmani names. The LLM is the examiner; the human stays in the loop where it matters: building the mental model.
+
+*(Future: the author picks which areas of the diff to be examined on and at what depth — not in v1.)*
+
 [^1]: Addy Osmani, ["Comprehension Debt"](https://addyosmani.com/blog/comprehension-debt/).
 [^2]: Anthropic, ["How AI Impacts Skill Formation"](https://www.anthropic.com/research/AI-assistance-coding-skills).
 [^3]: Simon Willison, ["Cognitive debt"](https://simonwillison.net/2026/Feb/15/cognitive-debt/).
