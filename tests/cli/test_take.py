@@ -1,3 +1,7 @@
+import hashlib
+import tempfile
+from pathlib import Path
+
 import httpx
 import pytest
 import typer
@@ -26,6 +30,21 @@ def _fake_llm_with_outline() -> FakeLLM:
     )
 
 
+def _cache_path(pr_url: str) -> Path:
+    """Mirror of cli.take._cache_path_for, used to clean up in tests."""
+    digest = hashlib.sha1(pr_url.encode("utf-8")).hexdigest()[:16]
+    return Path(tempfile.gettempdir()) / "quizz" / f"{digest}.json"
+
+
+@pytest.fixture(autouse=True)
+def _clean_cache() -> None:
+    """Each test gets a fresh cache. Cleans up any leftover files in $TMPDIR/quizz/."""
+    cache_dir = Path(tempfile.gettempdir()) / "quizz"
+    if cache_dir.exists():
+        for f in cache_dir.glob("*.json"):
+            f.unlink(missing_ok=True)
+
+
 def test_take_errors_when_no_pr(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("quizz.cli.take._detect_pr_from_branch", lambda: None)
     result = runner.invoke(app, ["take"])
@@ -52,38 +71,70 @@ def test_take_auto_detects(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured["show"] is False
 
 
-def test_take_flow_fetches_parses_and_runs_server(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When a quiz comment already exists, use it as-is and hand off to the server."""
-    from quizz.comment.render import render_quiz
-    from quizz.engine.models import MCQQuestion, Quiz
+def test_take_generates_and_does_not_post_to_pr(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Auto-generation must NOT post the quiz to the PR. The quiz lives in memory + cache."""
+    from quizz.cli.take import _run_take_flow
 
-    quiz = Quiz(
-        pr_number=42,
-        questions=[
-            MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A"),
-        ],
+    pr_url = "https://github.com/o/r/pull/42"
+    monkeypatch.setattr(
+        "quizz.cli.take.fetch_pr_info",
+        lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "quizz.cli.take.find_latest_marker_comment",
-        lambda pr, marker: render_quiz(quiz) if "quiz" in marker else None,
+        "quizz.cli.take.fetch_diff_and_files",
+        lambda pr, fetch_file_contents=None: ("diffstr\n" * 100, {}),
     )
-    captured: dict[str, object] = {}
+    posted: list[str] = []
+    monkeypatch.setattr(
+        "quizz.cli.take.post_comment",
+        lambda pr, md: posted.append(md) or "https://x/y#1",
+    )
+    served: dict[str, object] = {}
 
-    def fake_serve(quiz_, pr_url, llm, post_comment_fn):  # type: ignore[no-untyped-def]
-        captured["quiz"] = quiz_
-        captured["pr_url"] = pr_url
-        captured["llm"] = llm
-        captured["post_comment_fn"] = post_comment_fn
+    def fake_serve(quiz_, pr_url_, llm, post_comment_fn):  # type: ignore[no-untyped-def]
+        served["quiz"] = quiz_
+        served["pr_url"] = pr_url_
 
     monkeypatch.setattr("quizz.cli.take._serve_blocking", fake_serve)
 
+    _run_take_flow(pr_url, show_results_only=False, llm=_fake_llm_with_outline())
+
+    # The quiz should have been generated and served, but NEVER posted to the PR.
+    assert served["pr_url"] == pr_url
+    assert posted == [], "auto-generation must not post to the PR thread"
+    # Cache file should exist.
+    assert _cache_path(pr_url).exists()
+
+
+def test_take_reuses_cache_on_second_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Second invocation against the same PR should reuse the cached quiz, no LLM call."""
     from quizz.cli.take import _run_take_flow
 
-    _run_take_flow("https://github.com/o/r/pull/42", show_results_only=False, llm=_fake_llm())
+    pr_url = "https://github.com/o/r/pull/42"
 
-    assert captured["quiz"] == quiz
-    assert captured["pr_url"] == "https://github.com/o/r/pull/42"
-    assert callable(captured["post_comment_fn"])
+    # First run: generate and cache.
+    monkeypatch.setattr(
+        "quizz.cli.take.fetch_pr_info",
+        lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
+    )
+    monkeypatch.setattr(
+        "quizz.cli.take.fetch_diff_and_files",
+        lambda pr, fetch_file_contents=None: ("diffstr\n" * 100, {}),
+    )
+    monkeypatch.setattr("quizz.cli.take.post_comment", lambda pr, md: "https://x/y#1")
+    monkeypatch.setattr("quizz.cli.take._serve_blocking", lambda *a, **k: None)
+
+    _run_take_flow(pr_url, show_results_only=False, llm=_fake_llm_with_outline())
+    assert _cache_path(pr_url).exists()
+
+    # Second run: must NOT call fetch_pr_info or fetch_diff (cache wins).
+    def boom(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError("should not be called on cache hit")
+
+    monkeypatch.setattr("quizz.cli.take.fetch_pr_info", boom)
+    monkeypatch.setattr("quizz.cli.take.fetch_diff_and_files", boom)
+
+    _run_take_flow(pr_url, show_results_only=False, llm=_fake_llm_with_outline())
 
 
 def test_take_show_results_when_no_results_yet(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -96,47 +147,9 @@ def test_take_show_results_when_no_results_yet(monkeypatch: pytest.MonkeyPatch) 
     assert exc_info.value.exit_code == 1
 
 
-def test_take_auto_generates_when_no_quiz_exists(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If no quiz comment exists on the PR, take generates one, posts it, then serves it."""
-    from quizz.cli.take import _run_take_flow
-
-    monkeypatch.setattr("quizz.cli.take.find_latest_marker_comment", lambda pr, marker: None)
-    monkeypatch.setattr(
-        "quizz.cli.take.fetch_pr_info",
-        lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
-    )
-    monkeypatch.setattr(
-        "quizz.cli.take.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("diffstr\n" * 100, {}),
-    )
-    posted: dict[str, str] = {}
-    monkeypatch.setattr(
-        "quizz.cli.take.post_comment",
-        lambda pr, md: posted.update({"pr": pr, "md": md}) or "https://github.com/o/r/pull/42#c1",
-    )
-    served: dict[str, object] = {}
-
-    def fake_serve(quiz_, pr_url, llm, post_comment_fn):  # type: ignore[no-untyped-def]
-        served["quiz"] = quiz_
-        served["pr_url"] = pr_url
-
-    monkeypatch.setattr("quizz.cli.take._serve_blocking", fake_serve)
-
-    _run_take_flow(
-        "https://github.com/o/r/pull/42",
-        show_results_only=False,
-        llm=_fake_llm_with_outline(),
-    )
-
-    assert "<!-- quizz:quiz v1 -->" in posted["md"]
-    assert "why?" in posted["md"]
-    assert served["pr_url"] == "https://github.com/o/r/pull/42"
-
-
 def test_take_skips_small_diff(monkeypatch: pytest.MonkeyPatch) -> None:
     from quizz.cli.take import _run_take_flow
 
-    monkeypatch.setattr("quizz.cli.take.find_latest_marker_comment", lambda pr, marker: None)
     monkeypatch.setattr(
         "quizz.cli.take.fetch_pr_info",
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
@@ -154,12 +167,13 @@ def test_take_skips_small_diff(monkeypatch: pytest.MonkeyPatch) -> None:
     _run_take_flow(
         "https://github.com/o/r/pull/1", show_results_only=False, llm=_fake_llm_with_outline()
     )
+    # No cache should be written for skipped PRs.
+    assert not _cache_path("https://github.com/o/r/pull/1").exists()
 
 
 def test_take_respects_quiz_skip_in_body(monkeypatch: pytest.MonkeyPatch) -> None:
     from quizz.cli.take import _run_take_flow
 
-    monkeypatch.setattr("quizz.cli.take.find_latest_marker_comment", lambda pr, marker: None)
     monkeypatch.setattr(
         "quizz.cli.take.fetch_pr_info",
         lambda pr: PRInfo(1, "t", "quiz: skip\n\nThis PR ...", "o/r", "br", "alice"),
@@ -197,7 +211,6 @@ def test_take_handles_llm_failure(monkeypatch: pytest.MonkeyPatch) -> None:
         def grade_open(self, *args):  # type: ignore[no-untyped-def]
             return (0, "")
 
-    monkeypatch.setattr("quizz.cli.take.find_latest_marker_comment", lambda pr, marker: None)
     monkeypatch.setattr(
         "quizz.cli.take.fetch_pr_info",
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),

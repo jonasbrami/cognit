@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file. The format 
 ## [Unreleased]
 
 ### Changed
+- **In-memory-only quiz storage.** `quizz take` no longer posts the quiz as a PR comment. The quiz is generated in memory and cached locally at `$TMPDIR/quizz/<sha1(pr_url)[:16]>.json`. Re-running `quizz take` against the same PR (e.g. after closing the browser) reuses the cached quiz instead of regenerating, so a closed-tab recovery doesn't pay another LLM bill. The PR thread now carries **at most one comment per take session**, only if the author clicks Publish — and that comment is self-contained (question prompts + author answers inlined via `render_results_inlined`). Reviewers no longer see an answer key in plaintext on the PR.
+  - `/publish` now requires a prior `/submit` (returns 400 otherwise) because the inlined comment needs the cached answers.
+  - Older PRs may still have legacy `<!-- quizz:quiz v1 -->` comments; they're dormant and harmless. New runs ignore them.
 - **BREAKING — CLI collapsed to a single `quizz take` command.** `take` now auto-generates the quiz comment on the PR if none exists yet (calls the LLM with the diff, posts the rendered markdown), then opens the browser and grades in-session as before. The author runs one command instead of three. New flags on `take`: `--min-diff-lines` (default 50) and `--max-diff-lines` (default 2000) inherit from the old `quizz generate`. The engine layer (`engine/generate.py`, `engine/grade.py`) is unchanged — a future webhook or GitHub App can still call it directly.
 - **UI redesign**: `quizz take` now uses a github-native design — replaces the editorial (paper/serif/narrow) UI. Spec in `UI-REDESIGN.md`.
 

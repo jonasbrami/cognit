@@ -1,20 +1,27 @@
-"""`quizz take` — the only command. Generates a quiz on the PR if none exists,
-opens the browser quiz, grades in-session, optional publish."""
+"""`quizz take` — the only command.
 
+Generates the quiz in memory (cached locally for resume), opens the browser quiz,
+grades in-session, opt-in publishes the results comment to the PR. The quiz itself
+is **never posted to the PR** — only the results comment, and only when the user
+clicks Publish.
+"""
+
+import hashlib
 import json
 import socket
 import subprocess
+import tempfile
 import threading
 import webbrowser
 from collections.abc import Callable
+from pathlib import Path
 
 import typer
 import uvicorn
 from anthropic import APIError as AnthropicAPIError
 from pydantic import ValidationError
 
-from quizz.comment.parse import parse_quiz, parse_results
-from quizz.comment.render import render_quiz
+from quizz.comment.parse import parse_results
 from quizz.engine.generate import generate_quiz
 from quizz.engine.llm import LLMClient
 from quizz.engine.llm_anthropic import AnthropicLLM
@@ -23,7 +30,6 @@ from quizz.ghio.diff import fetch_diff_and_files, read_file_at_head
 from quizz.ghio.pr import fetch_pr_info, find_latest_marker_comment, post_comment
 from quizz.server.app import build_app
 
-_MARKER_QUIZ = "<!-- quizz:quiz v1 -->"
 _MARKER_RESULTS = "<!-- quizz:results v1 -->"
 
 
@@ -54,6 +60,17 @@ def _free_port() -> int:
         return port
 
 
+def _cache_path_for(pr_url: str) -> Path:
+    """Local cache path for a generated quiz, keyed by PR URL digest.
+
+    Lives under `$TMPDIR/quizz/`. OS reboot clears it. No explicit lifecycle.
+    """
+    digest = hashlib.sha1(pr_url.encode("utf-8")).hexdigest()[:16]
+    cache_dir = Path(tempfile.gettempdir()) / "quizz"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"{digest}.json"
+
+
 def _serve_blocking(
     quiz: Quiz,
     pr_url: str,
@@ -69,17 +86,17 @@ def _serve_blocking(
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
 
 
-def _generate_and_post(
+def _generate_in_memory(
     pr_url: str,
     llm: LLMClient,
     model: str,
     min_diff_lines: int,
     max_diff_lines: int,
-) -> str | None:
-    """Generate a quiz from the PR's diff and post it as a PR comment.
+) -> Quiz | None:
+    """Generate a quiz from the PR's diff. Returns the Quiz, or None if skipped.
 
-    Returns the rendered markdown of the posted comment, or None if the PR was
-    skipped (`quiz: skip` in body, diff smaller than min, diff larger than max).
+    Unlike the previous behaviour, does NOT post anything to the PR — the quiz
+    lives only in memory (and the local cache `_load_or_generate` writes).
     """
     info = fetch_pr_info(pr_url)
     if "quiz: skip" in info.body.lower():
@@ -94,7 +111,7 @@ def _generate_and_post(
         typer.echo(f"diff is {diff_lines} lines (> {max_diff_lines}) — skipping.")
         return None
     try:
-        quiz = generate_quiz(
+        return generate_quiz(
             diff=diff,
             pr_title=info.title,
             pr_body=info.body,
@@ -109,10 +126,29 @@ def _generate_and_post(
     except ValidationError as e:
         typer.echo(f"LLM returned malformed quiz: {e}", err=True)
         raise typer.Exit(code=1) from None
-    md = render_quiz(quiz)
-    post_comment(pr_url, md)
-    typer.echo("quiz comment posted to PR.")
-    return md
+
+
+def _load_or_generate(
+    pr_url: str,
+    llm: LLMClient,
+    model: str,
+    min_diff_lines: int,
+    max_diff_lines: int,
+) -> Quiz | None:
+    """Return a Quiz: from local cache if present, else generate fresh and cache it."""
+    cache_path = _cache_path_for(pr_url)
+    if cache_path.exists():
+        try:
+            return Quiz.model_validate_json(cache_path.read_text())
+        except ValidationError:
+            # Cache corrupt or schema-incompatible — regenerate.
+            cache_path.unlink(missing_ok=True)
+    typer.echo("generating quiz from diff...")
+    quiz = _generate_in_memory(pr_url, llm, model, min_diff_lines, max_diff_lines)
+    if quiz is None:
+        return None
+    cache_path.write_text(quiz.model_dump_json())
+    return quiz
 
 
 def _run_take_flow(
@@ -131,19 +167,15 @@ def _run_take_flow(
         typer.echo(parse_results(results_md).model_dump_json(indent=2))
         return
 
-    quiz_md = find_latest_marker_comment(pr_url, _MARKER_QUIZ)
-    if quiz_md is None:
-        typer.echo("no quiz on this PR yet — generating one...")
-        quiz_md = _generate_and_post(
-            pr_url,
-            llm=llm,
-            model=model,
-            min_diff_lines=min_diff_lines,
-            max_diff_lines=max_diff_lines,
-        )
-        if quiz_md is None:
-            return
-    quiz = parse_quiz(quiz_md)
+    quiz = _load_or_generate(
+        pr_url,
+        llm=llm,
+        model=model,
+        min_diff_lines=min_diff_lines,
+        max_diff_lines=max_diff_lines,
+    )
+    if quiz is None:
+        return
     _serve_blocking(
         quiz,
         pr_url,

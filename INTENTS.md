@@ -29,35 +29,37 @@ Developers increasingly rely on AI tools to write and review code, which creates
 
 ## Architecture
 
-One CLI command, one PR thread:
+One CLI command. The PR thread carries only the (opt-in) results comment — the quiz itself never touches it.
 
 ```
 ┌────────────────────────────────────┐
 │  `quizz take` (CLI, local)         │
 │                                    │
 │  1. detect PR from current branch  │
-│  2. if no quiz comment on PR yet:  │
-│     fetch diff, call LLM,          │ ──────────► posts quiz comment
-│     post quiz comment              │             (markdown + JSON state)
-│                                    │                       │
-│  3. read quiz comment ◄────────────┼───────────────────────┘
-│  4. open browser UI                │
-│  5. grade everything in-session    │             ┌────────────────────────┐
-│     (det. + LLM open-Q grading)    │             │  PR comment (the quiz) │
-│  6. show results inline            │             │  ─ rendered questions  │
-└─────────────┬──────────────────────┘             │  ─ mermaid native      │
-              │                                    │  ─ JSON state block    │
-              │ 7. user clicks "Publish results"   └────────────────────────┘
+│  2. cache hit?                     │
+│     yes → load Quiz from           │ ──── reads ──► $TMPDIR/quizz/<sha1>.json
+│             $TMPDIR/quizz/...      │ ◄─── writes ──
+│     no  → fetch diff, call LLM,    │
+│             write Quiz to cache    │
+│  3. open browser UI                │
+│  4. grade everything in-session    │
+│     (det. + LLM open-Q grading)    │
+│  5. show results inline            │
+└─────────────┬──────────────────────┘
+              │
+              │ 6. user clicks "Publish results"
               │    (opt-in — nothing posted on submit)
               ▼
-        POST /publish ──────────────────────────►  ┌────────────────────────┐
-                                                   │  PR comment (results)  │
-                                                   │  ─ total + per-Q score │
-                                                   │  ─ open-Q LLM feedback │
-                                                   └────────────────────────┘
+        POST /publish ──────────────────────────►  ┌──────────────────────────────┐
+                                                   │  PR comment (results)        │
+                                                   │  ─ total + per-Q score       │
+                                                   │  ─ question prompts inlined  │
+                                                   │  ─ your answers inlined      │
+                                                   │  ─ open-Q LLM feedback       │
+                                                   └──────────────────────────────┘
 ```
 
-Everything that needs to be persisted is a PR comment. No state branches, no workflow artifacts crossing runs, no external storage.
+The PR thread carries **at most one comment** per take session, and only if the author chose to publish. The quiz itself lives in memory + an ephemeral local cache (`$TMPDIR/quizz/`) — no quiz comment, no answer key visible on the PR by default. The results comment is self-contained (question prompts + author answers inlined) so reviewers reading the PR don't need a separate quiz comment to cross-reference.
 
 ## Components
 
@@ -66,27 +68,31 @@ Everything that needs to be persisted is a PR comment. No state branches, no wor
 - Auth: uses local `gh auth login` for PR I/O. LLM auth via Claude Code OAuth (`~/.claude/.credentials.json`) or `ANTHROPIC_API_KEY`. Anthropic is the only supported provider in v1.
 - Invocation: `quizz take [--pr <url-or-number>] [--model <name>] [--min-diff-lines N] [--max-diff-lines N]`. Auto-detects PR from current branch.
 - Steps:
-  1. Find the latest `<!-- quizz:quiz v1 -->` comment in the target PR via `gh pr view --json comments`.
-  2. **If no quiz comment exists yet, auto-generate one:**
-     - Fetch PR title, body via `gh pr view`; diff via `gh pr diff`; touched-file contents via `git show HEAD:<path>`.
-     - Skip if diff < `--min-diff-lines` (default 50), > `--max-diff-lines` (default 2000), or if PR body contains `quiz: skip`.
+  1. Detect the PR for the current branch via `gh pr view --json url`. (Skipped when `--pr` is passed.)
+  2. **Get the Quiz** — local cache first, else generate fresh:
+     - Cache path: `$TMPDIR/quizz/<sha1(pr_url)[:16]>.json`. If present, deserialize and skip to step 3.
+     - Otherwise: fetch PR title, body via `gh pr view`; diff via `gh pr diff`; touched-file contents via `git show HEAD:<path>`. Skip if diff < `--min-diff-lines` (default 50), > `--max-diff-lines` (default 2000), or if PR body contains `quiz: skip`.
      - Call the LLM with a prompt that asks it to **decide both the count and the type-mix** based on diff size and complexity. A typo fix gets 2–3 probes; a 500-line refactor with new abstractions might warrant 8 or more. Question types: `mcq` (facts/invariants), `mermaid` (control or data flow — generated as 1 correct + 3 plausible-but-wrong variants in uniform style), `open` (LLM-graded against a rubric), `tf` (subtle behavioral claims).
      - Validate mermaid diagrams with `@mermaid-js/mermaid-cli` parse pass (skip silently if not installed); retry per-question on failure (max 2 retries); drop mermaid Q as last resort.
      - Post-process mermaid options to neutral A/B/C/D labels (prevents accidental answer leak from semantic labels like `correct`/`wrong_1`).
-     - Render the markdown comment and post it to the PR via `gh pr comment`.
-  3. Parse the embedded JSON state from the quiz comment.
-  4. Spin up a local HTTP server (FastAPI + uvicorn, 127.0.0.1 only, random unused port), open the URL in the default browser.
-  5. Browser renders the quiz with `mermaid.js` (real diagram rendering, not GitHub's markdown view), real form controls for MCQ, a textarea for the open question.
-  6. On submit (POST `/submit`):
-     - Grade MCQ + mermaid + T/F deterministically against the answer key (which is in the JSON state, in plaintext — voluntary system).
+     - Write the Quiz JSON to the cache. **The quiz is NOT posted to the PR.**
+  3. Spin up a local HTTP server (FastAPI + uvicorn, 127.0.0.1 only, random unused port), open the URL in the default browser. The Quiz is held in the server's closure.
+  4. Browser renders the quiz with `mermaid.js` (real diagram rendering, not GitHub's markdown view), real form controls for MCQ, a textarea for the open question.
+  5. On submit (POST `/submit`):
+     - Cache the submitted `Answers` in the server's closure (so `/publish` can render an inlined results comment).
+     - Grade MCQ + mermaid + T/F deterministically against the answer key.
      - LLM-grade the open question in-session.
      - Return the full `Results` JSON to the browser. **Nothing is posted to the PR yet.**
      - Browser renders the result panel inline: total score, per-question breakdown, open-question feedback in a blockquote.
-  7. On clicking "Publish results to PR" (POST `/publish`):
-     - Server posts the results comment via `gh pr comment`. Confirms via status text in the UI.
+  6. On clicking "Publish results to PR" (POST `/publish`):
+     - Server renders a **self-contained results comment** via `render_results_inlined(quiz, answers, results)` — each question's prompt, the author's answer, the score, and any feedback are inlined.
+     - Posts via `gh pr comment`. Confirms via status text in the UI.
+     - Requires that `/submit` ran first in this session; otherwise responds 400.
 - Stays alive until the user closes the browser tab or hits Ctrl-C.
 
 **One command, one diagnostic.** `quizz generate` and `quizz grade` existed in earlier versions as separate CLI commands; both were collapsed into `take` once it became clear that the only happy-path use case is the author running a single command after opening their PR. The engine layer (`engine/generate.py`, `engine/grade.py`) is still standalone — a future GitHub App or webhook receiver can call into it without going through the CLI.
+
+**No quiz on the PR thread.** Earlier versions posted the quiz as a PR comment with marker `<!-- quizz:quiz v1 -->` and used the thread as canonical state. After the collapse to one command, that storage stopped being load-bearing — and it carried real costs (answer key visible in plaintext, noise for reviewers, an extra artifact unrelated to code review). The in-memory + ephemeral-cache design keeps recovery working (close the tab, re-run, same quiz, no LLM re-bill) without putting anything on the PR until the author opts in to publish.
 
 **Publishing is opt-in.** Solo devs can practice in private without leaving a trail; users who want a record click the button.
 

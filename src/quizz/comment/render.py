@@ -78,3 +78,46 @@ def render_results(res: Results) -> str:
     lines.append("```")
     lines.append("</details>")
     return "\n".join(lines)
+
+
+def render_results_inlined(quiz: Quiz, answers: Answers, results: Results) -> str:
+    """Render results with question prompts and author answers inlined.
+
+    The in-memory-only flow no longer posts a quiz comment to the PR, so the published
+    results comment must be self-contained. Each question is rendered with its prompt,
+    the author's answer, the score, and any feedback. The JSON state block at the
+    bottom is preserved so `parse_results` still round-trips.
+    """
+    answer_by_qid = {e.question_id: e.value for e in answers.entries}
+    result_by_qid = {r.question_id: r for r in results.per_question}
+
+    lines: list[str] = [
+        _MARKER_RESULTS,
+        "## Quiz results",
+        "",
+        f"**Total: {results.total_score}%**",
+        "",
+    ]
+    for i, q in enumerate(quiz.questions, 1):
+        r = result_by_qid.get(q.id)
+        if r is None:
+            continue
+        icon = "✅" if r.correct else "❌"
+        lines.append(f"### Question {i} — {icon} {r.score}%")
+        lines.append("")
+        lines.append(f"**Prompt:** {q.prompt}")
+        lines.append("")
+        user_answer = answer_by_qid.get(q.id, "")
+        lines.append(f"**Your answer:** `{user_answer}`")
+        if r.feedback:
+            lines.append("")
+            lines.append(f"> {r.feedback}")
+        lines.append("")
+    lines.append("---")
+    lines.append("<details><summary>Results state (used by the CLI)</summary>")
+    lines.append("")
+    lines.append("```json")
+    lines.append(results.model_dump_json(indent=2))
+    lines.append("```")
+    lines.append("</details>")
+    return "\n".join(lines)
