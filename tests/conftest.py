@@ -37,8 +37,7 @@ def _start_server(app: FastAPI, port: int) -> tuple[uvicorn.Server, threading.Th
             last_exc = exc
         time.sleep(0.05)
     raise RuntimeError(
-        f"uvicorn on port {port} did not become ready within 5s "
-        f"(last error: {last_exc!r})"
+        f"uvicorn on port {port} did not become ready within 5s (last error: {last_exc!r})"
     )
 
 
@@ -68,7 +67,9 @@ def sample_quiz() -> Quiz:
                 answer="A",
             ),
             OpenQuestion(id="q3", prompt="Why Redis over a dict?", rubric="cross-worker state"),
-            TrueFalseQuestion(id="q4", prompt="`@skip_rate_limit` bypasses the middleware entirely.", answer=False),
+            TrueFalseQuestion(
+                id="q4", prompt="`@skip_rate_limit` bypasses the middleware entirely.", answer=False
+            ),
         ],
     )
 

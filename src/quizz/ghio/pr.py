@@ -60,8 +60,7 @@ def post_comment(pr_url_or_number: str, body: str) -> str:
     url = result.stdout.strip()
     if not url:
         raise RuntimeError(
-            f"gh api returned no html_url for PR #{info.number} "
-            f"(stderr: {result.stderr.strip()!r})"
+            f"gh api returned no html_url for PR #{info.number} (stderr: {result.stderr.strip()!r})"
         )
     return url
 
