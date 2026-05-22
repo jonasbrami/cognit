@@ -14,6 +14,7 @@ into a closure-shared list, the adapter returns the args as a Pydantic model.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from importlib import resources
 from typing import Any
 
@@ -34,6 +35,8 @@ from quizz.engine.models import MermaidSet, MermaidSpec, QuizOutline
 _TOOL_OUTLINE = "submit_quiz_outline"
 _TOOL_MERMAID = "submit_mermaid_set"
 _TOOL_GRADE = "submit_grade"
+
+_ToolHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
 def _load_prompt(name: str) -> str:
@@ -63,8 +66,61 @@ class ClaudeAgentLLM:
         tool_description: str,
         tool_schema: dict[str, Any],
     ) -> dict[str, Any] | None:
-        """Spawn an agent, await one tool call, return the captured args or None."""
-        raise NotImplementedError
+        """Spawn an agent, await one tool call, return the captured args or None.
+
+        Returns None if the agent finishes its turn without calling the MCP tool.
+        Caller decides what to do (retry, raise, etc.).
+        """
+        captured: list[dict[str, Any]] = []
+
+        async def handler(args: dict[str, Any]) -> dict[str, Any]:
+            captured.append(args)
+            return {"content": [{"type": "text", "text": "ok"}]}
+
+        decorated = tool(tool_name, tool_description, tool_schema)(handler)
+        server = create_sdk_mcp_server(name="quizz", tools=[decorated])
+        options = ClaudeAgentOptions(
+            system_prompt=system,
+            model=self._model,
+            mcp_servers={"quizz": server},
+            allowed_tools=[f"mcp__quizz__{tool_name}"],
+            max_turns=2,
+            permission_mode="bypassPermissions",
+            setting_sources=[],
+        )
+        try:
+            self._drain_agent(prompt=user, options=options, handler=handler)
+        except CLINotFoundError as e:
+            raise RuntimeError(
+                "claude binary not found; install Claude Code "
+                "(`npm i -g @anthropic-ai/claude-code`) or set ANTHROPIC_API_KEY"
+            ) from e
+        except (CLIConnectionError, ProcessError, ClaudeSDKError) as e:
+            raise RuntimeError(f"claude agent SDK call failed: {e}") from e
+
+        return captured[0] if captured else None
+
+    def _drain_agent(
+        self,
+        *,
+        prompt: str,
+        options: ClaudeAgentOptions,
+        handler: _ToolHandler,
+    ) -> None:
+        """Drain the SDK's `query` stream until the agent finishes its turn.
+
+        The `handler` parameter is unused in production — the SDK invokes the
+        registered MCP tool's handler internally when the agent calls the tool.
+        It's passed in so tests can override `_drain_agent` and invoke the
+        handler directly without spinning up a real `claude` subprocess.
+        """
+        del handler  # production-side: handler is fired by the SDK, not by us
+
+        async def _drain() -> None:
+            async for _ in query(prompt=prompt, options=options):
+                pass
+
+        asyncio.run(_drain())
 
     def generate_quiz_outline(self, req: GenerateRequest) -> QuizOutline:
         raise NotImplementedError
