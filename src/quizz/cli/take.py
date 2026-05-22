@@ -8,6 +8,7 @@ clicks Publish.
 
 import hashlib
 import json
+import logging
 import os
 import socket
 import subprocess
@@ -31,6 +32,8 @@ from quizz.engine.models import Quiz
 from quizz.ghio.diff import fetch_diff_and_files, read_file_at_head
 from quizz.ghio.pr import fetch_pr_info, find_latest_marker_comment, post_comment
 from quizz.server.app import build_app
+
+logger = logging.getLogger("quizz.cli.take")
 
 _MARKER_RESULTS = "<!-- quizz:results v1 -->"
 
@@ -151,16 +154,19 @@ def _load_or_generate(
     """Return a Quiz: from local cache if present, else generate fresh and cache it."""
     cache_path = _cache_path_for(pr_url)
     if cache_path.exists():
+        logger.debug("cache hit: loading quiz from %s", cache_path)
         try:
             return Quiz.model_validate_json(cache_path.read_text())
         except ValidationError:
-            # Cache corrupt or schema-incompatible — regenerate.
+            logger.debug("cache at %s is invalid — regenerating", cache_path)
             cache_path.unlink(missing_ok=True)
+    logger.debug("cache miss: will generate fresh quiz (will write to %s)", cache_path)
     typer.echo("generating quiz from diff...")
     quiz = _generate_in_memory(pr_url, llm, model, min_diff_lines, max_diff_lines)
     if quiz is None:
         return None
     cache_path.write_text(quiz.model_dump_json())
+    logger.debug("quiz cached at %s (%d bytes)", cache_path, cache_path.stat().st_size)
     return quiz
 
 
@@ -197,6 +203,22 @@ def _run_take_flow(
     )
 
 
+def _configure_logging() -> None:
+    """Wire up `QUIZZ_LOG_LEVEL` so debug traces from the engine layers are visible.
+
+    Default is WARNING (quiet). Set `QUIZZ_LOG_LEVEL=DEBUG` to see which mermaid
+    validator is being used, cache hits, and other internal decisions:
+
+        QUIZZ_LOG_LEVEL=DEBUG quizz take
+    """
+    level_name = os.environ.get("QUIZZ_LOG_LEVEL", "WARNING").upper()
+    level = getattr(logging, level_name, logging.WARNING)
+    logging.basicConfig(
+        level=level,
+        format="%(name)s %(levelname)s: %(message)s",
+    )
+
+
 def run(
     pr: str | None,
     show_results: bool,
@@ -204,6 +226,7 @@ def run(
     min_diff_lines: int = 50,
     max_diff_lines: int = 2000,
 ) -> None:
+    _configure_logging()
     pr_url = pr or _detect_pr_from_branch()
     if pr_url is None:
         typer.echo("error: no PR detected from current branch; pass --pr <url>")

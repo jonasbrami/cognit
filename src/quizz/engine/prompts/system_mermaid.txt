@@ -23,6 +23,8 @@ You are a mermaid-diagram artisan producing 4 quiz options. The reader sees them
 
 5. **Validity:** every diagram must parse as valid mermaid. Standard headers (`flowchart LR`, `sequenceDiagram`, etc.), balanced brackets, no trailing junk.
 
+6. **Never start a node or edge label with `/` or `\`.** Mermaid interprets `[/text]` as a *parallelogram* shape declaration, not a rectangle with a leading slash. URL-like paths (`/submit`, `/publish`, `/api/v1`) inside a rectangle node MUST be wrapped in double quotes — write `["/submit endpoint"]`, not `[/submit endpoint]`. The same rule applies to sequence-diagram messages and class-diagram labels.
+
 ## Output
 
 Submit the 4 diagrams plus which key is correct via the `submit_mermaid_set` tool. The tool's schema requires exactly four entries keyed A, B, C, D, plus a `correct` field naming one of them.

@@ -1,36 +1,163 @@
-from quizz.engine.mermaid import is_valid_mermaid, MermaidUnavailable
-import pytest
 import shutil
+
+import pytest
+
+from quizz.engine.mermaid import MermaidUnavailable, is_valid_mermaid
+
+
+# ---------- Native mmdc tests (skip if not installed) ----------
 
 
 @pytest.mark.skipif(not shutil.which("mmdc"), reason="mmdc not installed")
-def test_valid_diagram():
+def test_valid_diagram() -> None:
     assert is_valid_mermaid("flowchart LR\nA --> B")
 
 
 @pytest.mark.skipif(not shutil.which("mmdc"), reason="mmdc not installed")
-def test_invalid_diagram():
+def test_invalid_diagram() -> None:
     assert not is_valid_mermaid("not actually mermaid {{{")
 
 
-def test_raises_if_mmdc_missing(monkeypatch):
-    monkeypatch.setattr("quizz.engine.mermaid._which_mmdc", lambda: None)
+# ---------- Python-side check ----------
+
+
+def _no_external_validators(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pretend mmdc and docker are both missing so the Python check is the only gate."""
+    monkeypatch.setattr("quizz.engine.mermaid._which", lambda cmd: None)
+
+
+def test_python_side_check_accepts_valid_when_no_validators(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _no_external_validators(monkeypatch)
+    assert is_valid_mermaid("flowchart LR\n  A --> B", strict=False) is True
+
+
+def test_python_side_check_rejects_obvious_garbage(monkeypatch: pytest.MonkeyPatch) -> None:
+    _no_external_validators(monkeypatch)
+    assert is_valid_mermaid("anything", strict=False) is False
+    assert is_valid_mermaid("", strict=False) is False
+    assert is_valid_mermaid("flowchart LR\n[[[[[[", strict=False) is False
+
+
+def test_python_side_check_rejects_leading_slash_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`[/submit]` is mermaid's parallelogram-shape syntax, not a rectangle with a
+    leading slash. LLMs hit this when labels contain URL paths. The Python check
+    must reject it pre-emptively so generation retries instead of serving a broken
+    diagram to the browser."""
+    _no_external_validators(monkeypatch)
+    diag = "flowchart LR\nA[/submit: Return Results] --> B[/publish: Render Comment]\n"
+    assert is_valid_mermaid(diag, strict=False) is False
+
+
+def test_python_side_check_accepts_quoted_path_in_label(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The fix for the leading-slash bug: wrap the URL-like path in double quotes."""
+    _no_external_validators(monkeypatch)
+    diag = 'flowchart LR\nA["/submit endpoint"] --> B["/publish endpoint"]\n'
+    assert is_valid_mermaid(diag, strict=False) is True
+
+
+# ---------- Strict mode ----------
+
+
+def test_strict_raises_when_no_validator_at_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    """strict=True without mmdc OR docker is a misconfiguration — raise loudly."""
+    _no_external_validators(monkeypatch)
     with pytest.raises(MermaidUnavailable):
         is_valid_mermaid("flowchart LR\nA --> B", strict=True)
 
 
-def test_python_side_check_accepts_valid_when_mmdc_missing(monkeypatch):
-    """When mmdc is missing, the lightweight Python-side check is the only gate.
-    Valid-looking mermaid should still pass so we don't block legitimate diagrams."""
-    monkeypatch.setattr("quizz.engine.mermaid._which_mmdc", lambda: None)
-    assert is_valid_mermaid("flowchart LR\n  A --> B", strict=False) is True
+# ---------- Docker layer ----------
 
 
-def test_python_side_check_rejects_obvious_garbage_when_mmdc_missing(monkeypatch):
-    """Previously, missing mmdc meant zero validation — Claude could emit anything and
-    we'd accept it silently. The Python-side check now catches obvious failures even
-    without mmdc: empty source, missing diagram-type header, grossly unbalanced brackets."""
-    monkeypatch.setattr("quizz.engine.mermaid._which_mmdc", lambda: None)
-    assert is_valid_mermaid("anything", strict=False) is False
-    assert is_valid_mermaid("", strict=False) is False
-    assert is_valid_mermaid("flowchart LR\n[[[[[[", strict=False) is False
+class _FakeCompleted:
+    def __init__(self, returncode: int, stdout: bytes = b"", stderr: bytes = b"") -> None:
+        self.returncode = returncode
+        self.stdout = stdout
+        self.stderr = stderr
+
+
+def test_docker_layer_invoked_when_only_docker_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If `mmdc` is missing but `docker` is on PATH, validation must go through
+    the dockerised validator — not silently fall back to the Python verdict."""
+
+    def fake_which(cmd: str) -> str | None:
+        return "/usr/bin/docker" if cmd == "docker" else None
+
+    monkeypatch.setattr("quizz.engine.mermaid._which", fake_which)
+
+    calls: list[list[str]] = []
+
+    def fake_run(args: list[str], **kwargs: object) -> _FakeCompleted:
+        calls.append(args)
+        # First call: `docker image inspect <tag>` → say "image exists" so we skip build.
+        if "image" in args:
+            return _FakeCompleted(0)
+        # Second call: `docker run --rm -i <tag>` → say "parse succeeded".
+        if "run" in args:
+            return _FakeCompleted(0)
+        return _FakeCompleted(1)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    assert is_valid_mermaid("flowchart LR\nA --> B", strict=False) is True
+    # We expect at least an `image inspect` then a `run` — proving docker was invoked.
+    inspect_seen = any("inspect" in args for args in calls)
+    run_seen = any("run" in args for args in calls)
+    assert inspect_seen, f"docker image inspect was not invoked; calls were {calls!r}"
+    assert run_seen, f"docker run was not invoked; calls were {calls!r}"
+
+
+def test_docker_layer_propagates_parse_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If the dockerised validator reports a parse error (exit 1), is_valid_mermaid
+    returns False — without falling back to the optimistic Python verdict."""
+
+    def fake_which(cmd: str) -> str | None:
+        return "/usr/bin/docker" if cmd == "docker" else None
+
+    monkeypatch.setattr("quizz.engine.mermaid._which", fake_which)
+
+    def fake_run(args: list[str], **kwargs: object) -> _FakeCompleted:
+        if "image" in args:
+            return _FakeCompleted(0)  # image exists
+        if "run" in args:
+            return _FakeCompleted(1, stderr=b"Parse error on line 2")
+        return _FakeCompleted(0)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    # Passes the Python check (header + balanced brackets) but the dockerised
+    # validator is authoritative and says no.
+    assert is_valid_mermaid("flowchart LR\nA --> B", strict=False) is False
+
+
+def test_docker_layer_builds_image_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """First-use behaviour: `docker image inspect` says "not found" (rc=1), so we
+    call `docker build` to create it, then run. The build is one-time."""
+
+    def fake_which(cmd: str) -> str | None:
+        return "/usr/bin/docker" if cmd == "docker" else None
+
+    monkeypatch.setattr("quizz.engine.mermaid._which", fake_which)
+
+    seen: list[str] = []
+
+    def fake_run(args: list[str], **kwargs: object) -> _FakeCompleted:
+        op = next((a for a in args if a in ("inspect", "build", "run")), "?")
+        seen.append(op)
+        if op == "inspect":
+            return _FakeCompleted(1)  # image missing
+        if op == "build":
+            return _FakeCompleted(0)  # build succeeded
+        if op == "run":
+            return _FakeCompleted(0)
+        return _FakeCompleted(1)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    assert is_valid_mermaid("flowchart LR\nA --> B", strict=False) is True
+    assert "inspect" in seen
+    assert "build" in seen
+    assert "run" in seen
+    # And in the right order.
+    assert seen.index("inspect") < seen.index("build") < seen.index("run")
