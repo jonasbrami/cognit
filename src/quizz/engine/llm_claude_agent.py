@@ -123,7 +123,23 @@ class ClaudeAgentLLM:
         asyncio.run(_drain())
 
     def generate_quiz_outline(self, req: GenerateRequest) -> QuizOutline:
-        raise NotImplementedError
+        system = _load_prompt("system_generate.txt")
+        user = _load_prompt("generate.txt").format(
+            pr_title=req.pr_title,
+            pr_body=req.pr_body,
+            diff=req.diff,
+            files=_format_files_blob(req.files),
+        )
+        args = self._invoke_tool(
+            system=system,
+            user=user,
+            tool_name=_TOOL_OUTLINE,
+            tool_description="Submit the generated quiz outline.",
+            tool_schema=QuizOutline.model_json_schema(),
+        )
+        if args is None:
+            raise RuntimeError(f"agent did not call {_TOOL_OUTLINE}")
+        return QuizOutline.model_validate(args)
 
     def generate_mermaid_set(self, spec: MermaidSpec, req: GenerateRequest) -> MermaidSet:
         raise NotImplementedError

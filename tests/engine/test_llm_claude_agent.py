@@ -20,6 +20,7 @@ from claude_agent_sdk import CLINotFoundError
 
 from quizz.engine.llm import GenerateRequest
 from quizz.engine.llm_claude_agent import ClaudeAgentLLM
+from quizz.engine.models import MCQQuestion, MermaidSet, MermaidSpec, QuizOutline
 
 
 def _make_drain_that_calls_handler(args: dict[str, Any]) -> Any:
@@ -126,4 +127,45 @@ def test_invoke_tool_maps_cli_not_found_to_runtime_error(
             tool_name="t",
             tool_description="d",
             tool_schema={"type": "object"},
+        )
+
+
+# --- generate_quiz_outline ---
+
+
+def test_generate_quiz_outline_calls_outline_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    canned = QuizOutline(
+        questions=[MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A")]
+    )
+    seen: dict[str, Any] = {}
+
+    def fake_invoke(self: ClaudeAgentLLM, **kw: Any) -> dict[str, Any]:
+        seen.update(kw)
+        return canned.model_dump()
+
+    monkeypatch.setattr(ClaudeAgentLLM, "_invoke_tool", fake_invoke)
+    llm = ClaudeAgentLLM()
+    out = llm.generate_quiz_outline(
+        GenerateRequest(diff="x", pr_title="t", pr_body="b", files={})
+    )
+    assert out == canned
+    assert seen["tool_name"] == "submit_quiz_outline"
+    # The outline schema must define MermaidPlaceholder (the pre-render type) and
+    # NOT MermaidQuestion (the post-render type). Checking $defs avoids false
+    # positives from docstrings.
+    defs = seen["tool_schema"].get("$defs", {})
+    assert "MermaidPlaceholder" in defs
+    assert "MermaidQuestion" not in defs
+    # System prompt should come from system_generate.txt.
+    assert "comprehension quiz author" in seen["system"].lower()
+
+
+def test_generate_quiz_outline_raises_when_tool_not_called(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ClaudeAgentLLM, "_invoke_tool", lambda self, **kw: None)
+    llm = ClaudeAgentLLM()
+    with pytest.raises(RuntimeError, match="submit_quiz_outline"):
+        llm.generate_quiz_outline(
+            GenerateRequest(diff="x", pr_title="t", pr_body="b", files={})
         )
