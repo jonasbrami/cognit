@@ -11,7 +11,6 @@ Two layers of mocking:
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
@@ -87,9 +86,7 @@ def test_invoke_tool_builds_options_correctly(monkeypatch: pytest.MonkeyPatch) -
     """The MCP tool is registered with the right name, schema, and allowlist."""
     captured_options: list[Any] = []
 
-    def fake_drain(
-        self: ClaudeAgentLLM, *, prompt: str, options: Any, handler: Any
-    ) -> None:
+    def fake_drain(self: ClaudeAgentLLM, *, prompt: str, options: Any, handler: Any) -> None:
         captured_options.append(options)
 
     monkeypatch.setattr(ClaudeAgentLLM, "_drain_agent", fake_drain)
@@ -113,9 +110,7 @@ def test_invoke_tool_builds_options_correctly(monkeypatch: pytest.MonkeyPatch) -
 def test_invoke_tool_maps_cli_not_found_to_runtime_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    def fake_drain(
-        self: ClaudeAgentLLM, *, prompt: str, options: Any, handler: Any
-    ) -> None:
+    def fake_drain(self: ClaudeAgentLLM, *, prompt: str, options: Any, handler: Any) -> None:
         raise CLINotFoundError("claude binary not on PATH")
 
     monkeypatch.setattr(ClaudeAgentLLM, "_drain_agent", fake_drain)
@@ -145,9 +140,7 @@ def test_generate_quiz_outline_calls_outline_tool(monkeypatch: pytest.MonkeyPatc
 
     monkeypatch.setattr(ClaudeAgentLLM, "_invoke_tool", fake_invoke)
     llm = ClaudeAgentLLM()
-    out = llm.generate_quiz_outline(
-        GenerateRequest(diff="x", pr_title="t", pr_body="b", files={})
-    )
+    out = llm.generate_quiz_outline(GenerateRequest(diff="x", pr_title="t", pr_body="b", files={}))
     assert out == canned
     assert seen["tool_name"] == "submit_quiz_outline"
     # The outline schema must define MermaidPlaceholder (the pre-render type) and
@@ -166,9 +159,7 @@ def test_generate_quiz_outline_raises_when_tool_not_called(
     monkeypatch.setattr(ClaudeAgentLLM, "_invoke_tool", lambda self, **kw: None)
     llm = ClaudeAgentLLM()
     with pytest.raises(RuntimeError, match="submit_quiz_outline"):
-        llm.generate_quiz_outline(
-            GenerateRequest(diff="x", pr_title="t", pr_body="b", files={})
-        )
+        llm.generate_quiz_outline(GenerateRequest(diff="x", pr_title="t", pr_body="b", files={}))
 
 
 # --- generate_mermaid_set ---
