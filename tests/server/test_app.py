@@ -95,7 +95,12 @@ def test_submit_grades_everything_no_autopost() -> None:
 
 
 def test_publish_posts_results_comment() -> None:
-    """POST /publish takes a Results payload and posts it as a PR comment."""
+    """POST /publish takes a Results payload and posts it as a PR comment.
+
+    Requires a prior /submit call — /publish renders the comment by inlining the
+    questions (from the quiz) and the author's answers (cached on /submit), so
+    publishing without submitting first is a 400.
+    """
     posted: list[str] = []
 
     def _post(md: str) -> str:
@@ -109,24 +114,56 @@ def test_publish_posts_results_comment() -> None:
         post_comment=_post,
     )
     client = TestClient(app)
-    results_payload = {
-        "version": "1",
-        "pr_number": 42,
-        "total_score": 92,
-        "per_question": [
-            {"question_id": "q1", "correct": True, "score": 100, "feedback": ""},
-            {"question_id": "q2", "correct": True, "score": 85, "feedback": "solid"},
-        ],
-    }
+    submit_resp = client.post(
+        "/submit",
+        json={
+            "version": "1",
+            "pr_number": 42,
+            "entries": [
+                {"question_id": "q1", "value": "A"},
+                {"question_id": "q2", "value": "good answer"},
+            ],
+        },
+    )
+    assert submit_resp.status_code == 200
+    results_payload = submit_resp.json()
+
     r = client.post("/publish", json=results_payload)
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
-    assert body["total_score"] == 92
     assert body["comment_url"] == "https://x/y#1"
     assert len(posted) == 1
-    assert "<!-- quizz:results v1 -->" in posted[0]
-    assert "92%" in posted[0]
+    # New: results comment should INLINE the question prompts and author answers
+    # (since the PR no longer carries a quiz comment to cross-reference).
+    md = posted[0]
+    assert "<!-- quizz:results v1 -->" in md
+    assert "why?" in md, "question prompt should be inlined"
+    assert "good answer" in md, "author's answer should be inlined"
+
+
+def test_publish_without_submit_returns_400() -> None:
+    """If no /submit has happened, /publish can't render an inlined comment — must 400."""
+    posted: list[str] = []
+    app = build_app(
+        quiz=_sample_quiz(),
+        pr_url="x",
+        llm=_noop_llm(),
+        post_comment=lambda md: posted.append(md) or "https://x/y#1",
+    )
+    client = TestClient(app)
+    results_payload = {
+        "version": "1",
+        "pr_number": 42,
+        "total_score": 50,
+        "per_question": [
+            {"question_id": "q1", "correct": False, "score": 0, "feedback": ""},
+            {"question_id": "q2", "correct": False, "score": 100, "feedback": "ok"},
+        ],
+    }
+    r = client.post("/publish", json=results_payload)
+    assert r.status_code == 400
+    assert posted == []
 
 
 def test_submit_then_publish_round_trip() -> None:
@@ -250,18 +287,20 @@ def test_publish_returns_comment_url() -> None:
         post_comment=lambda md: "https://github.com/o/r/pull/42#issuecomment-9999",
     )
     client = TestClient(app)
-    results_payload = {
-        "version": "1",
-        "pr_number": 42,
-        "total_score": 92,
-        "per_question": [
-            {"question_id": "q1", "correct": True, "score": 100, "feedback": ""},
-            {"question_id": "q2", "correct": True, "score": 85, "feedback": "solid"},
-        ],
-    }
-    r = client.post("/publish", json=results_payload)
+    submit_resp = client.post(
+        "/submit",
+        json={
+            "version": "1",
+            "pr_number": 42,
+            "entries": [
+                {"question_id": "q1", "value": "A"},
+                {"question_id": "q2", "value": "ans"},
+            ],
+        },
+    )
+    assert submit_resp.status_code == 200
+    r = client.post("/publish", json=submit_resp.json())
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True
-    assert body["total_score"] == 92
     assert body["comment_url"] == "https://github.com/o/r/pull/42#issuecomment-9999"

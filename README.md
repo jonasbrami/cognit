@@ -6,7 +6,7 @@
 
 A local CLI that quizzes the **author** of a pull request (not the reviewer) on the code they're about to merge. One command:
 
-- `quizz take` — auto-detects the PR for the current branch, generates a quiz from the diff if none exists yet (calls an LLM, posts the quiz as a PR comment), opens the quiz in your local browser, grades everything in-session, and lets you optionally publish the results back to the PR.
+- `quizz take` — auto-detects the PR for the current branch, generates a quiz from the diff (cached locally so you can resume), opens the quiz in your local browser, grades everything in-session, and lets you optionally publish the results back to the PR. The quiz itself is **never** posted to the PR; only the results comment, and only if you click Publish.
 
 Like CI checks, linters, or pre-commit hooks: opt-in. Failing doesn't block merge — the value is the "aha" moment when you realize the code does something you didn't expect.
 
@@ -17,10 +17,10 @@ Like CI checks, linters, or pre-commit hooks: opt-in. Failing doesn't block merg
 1. You open a PR.
 2. From a checkout of the PR branch, run `quizz take`. The CLI:
    - Auto-detects the PR for the current branch via `gh`.
-   - If no quiz comment exists yet on the PR: reads the diff, calls an LLM (Claude via the Anthropic SDK; Claude Code OAuth or `ANTHROPIC_API_KEY`), and posts a structured quiz comment to the PR. The LLM picks question count and type-mix based on diff complexity (typically 2–10 questions across MCQ, mermaid-pick, open, true/false).
+   - Generates a quiz from the diff in memory (Claude via the Anthropic SDK; Claude Code OAuth or `ANTHROPIC_API_KEY`). The LLM picks question count and type-mix based on diff complexity (typically 2–10 questions across MCQ, mermaid-pick, open, true/false). The quiz is cached locally at `$TMPDIR/quizz/` so a closed browser tab can be resumed without paying the LLM bill again.
    - Opens `localhost` in your browser with a polished form (mermaid diagrams rendered client-side).
 3. You answer, hit Submit. Everything is graded in-session: MCQ / mermaid / TF deterministically; the open question is LLM-graded against a rubric the generator wrote.
-4. You see results inline in the browser. If you want a record on the PR, click **Publish results to PR**. If you don't, nothing is posted.
+4. You see results inline in the browser. If you want a record on the PR, click **Publish results to PR** — the resulting comment is self-contained (question prompts, your answers, scores all inlined). If you don't click, nothing is posted to the PR. **The quiz itself is never posted to the PR**.
 
 ## Quickstart
 
