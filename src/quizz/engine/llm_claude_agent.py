@@ -142,7 +142,43 @@ class ClaudeAgentLLM:
         return QuizOutline.model_validate(args)
 
     def generate_mermaid_set(self, spec: MermaidSpec, req: GenerateRequest) -> MermaidSet:
-        raise NotImplementedError
+        system = _load_prompt("system_mermaid.txt")
+        user = _load_prompt("mermaid.txt").format(
+            diagram_type=spec.diagram_type,
+            correct_description=spec.correct_description,
+            misconceptions=_format_misconceptions(spec.misconceptions),
+            style_notes=spec.style_notes,
+        )
+        schema: dict[str, Any] = {
+            "type": "object",
+            "properties": {
+                "options": {
+                    "type": "object",
+                    "description": "Exactly four keys A, B, C, D mapping to mermaid sources.",
+                    "properties": {
+                        "A": {"type": "string"},
+                        "B": {"type": "string"},
+                        "C": {"type": "string"},
+                        "D": {"type": "string"},
+                    },
+                    "required": ["A", "B", "C", "D"],
+                    "additionalProperties": False,
+                },
+                "correct": {"type": "string", "enum": ["A", "B", "C", "D"]},
+            },
+            "required": ["options", "correct"],
+            "additionalProperties": False,
+        }
+        args = self._invoke_tool(
+            system=system,
+            user=user,
+            tool_name=_TOOL_MERMAID,
+            tool_description="Submit 4 mermaid diagrams keyed A/B/C/D plus which is correct.",
+            tool_schema=schema,
+        )
+        if args is None:
+            raise RuntimeError(f"agent did not call {_TOOL_MERMAID}")
+        return MermaidSet.model_validate(args)
 
     def grade_open(self, question_prompt: str, rubric: str, answer: str) -> tuple[int, str]:
         raise NotImplementedError
