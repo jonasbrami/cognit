@@ -84,7 +84,9 @@ class ClaudeAgentLLM:
             model=self._model,
             mcp_servers={"quizz": server},
             allowed_tools=[f"mcp__quizz__{tool_name}"],
-            max_turns=2,
+            # Empirically the agent needs ~3 turns (ToolSearch → tool call → confirm).
+            # 8 leaves headroom for thinking blocks without letting a stuck agent burn budget.
+            max_turns=8,
             permission_mode="bypassPermissions",
             setting_sources=[],
         )
@@ -97,6 +99,11 @@ class ClaudeAgentLLM:
             ) from e
         except (CLIConnectionError, ProcessError, ClaudeSDKError) as e:
             raise RuntimeError(f"claude agent SDK call failed: {e}") from e
+        except Exception as e:
+            # The SDK raises bare `Exception` for protocol-level errors like
+            # "Reached maximum number of turns" — wrap to keep take.py's catch
+            # clause uniform.
+            raise RuntimeError(f"claude agent SDK error: {e}") from e
 
         return captured[0] if captured else None
 
