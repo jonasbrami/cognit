@@ -227,3 +227,36 @@ def test_take_handles_llm_failure(monkeypatch: pytest.MonkeyPatch) -> None:
             llm=BoomLLM(),  # type: ignore[arg-type]
         )
     assert exc_info.value.exit_code == 1
+
+
+def test_take_handles_runtime_error_from_agent(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ClaudeAgentLLM maps SDK errors to RuntimeError; take.py must exit 1 with a message."""
+    from quizz.cli.take import _run_take_flow
+
+    class BoomLLM:
+        def generate_quiz_outline(self, req):  # type: ignore[no-untyped-def]
+            raise RuntimeError("claude binary not found; install Claude Code")
+
+        def generate_mermaid_set(self, spec, req):  # type: ignore[no-untyped-def]
+            raise AssertionError("should not be reached")
+
+        def grade_open(self, *args):  # type: ignore[no-untyped-def]
+            return (0, "")
+
+    monkeypatch.setattr("quizz.cli.take.find_latest_marker_comment", lambda pr, marker: None)
+    monkeypatch.setattr(
+        "quizz.cli.take.fetch_pr_info",
+        lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
+    )
+    monkeypatch.setattr(
+        "quizz.cli.take.fetch_diff_and_files",
+        lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
+    )
+
+    with pytest.raises(typer.Exit) as exc_info:
+        _run_take_flow(
+            "https://github.com/o/r/pull/1",
+            show_results_only=False,
+            llm=BoomLLM(),  # type: ignore[arg-type]
+        )
+    assert exc_info.value.exit_code == 1

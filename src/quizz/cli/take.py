@@ -136,6 +136,9 @@ def _generate_in_memory(
     except ValidationError as e:
         typer.echo(f"LLM returned malformed quiz: {e}", err=True)
         raise typer.Exit(code=1) from None
+    except RuntimeError as e:
+        typer.echo(f"LLM call failed: {e}", err=True)
+        raise typer.Exit(code=1) from None
 
 
 def _load_or_generate(
