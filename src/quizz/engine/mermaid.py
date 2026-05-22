@@ -41,13 +41,29 @@ _ALLOWED_HEADERS = re.compile(
 # in mermaid, NOT rectangles with a leading slash. LLMs trip on this every time they
 # put a URL-like path ("/submit", "/publish") inside a rectangle node — the whole
 # diagram fails to parse. Reject pre-emptively so generation retries instead.
+#
+# Trade-off: this regex ALSO rejects legitimate trapezoid/parallelogram syntax. That's
+# consistent with the artisan prompt (rule 3 only allows rectangles, sequence, class,
+# state shapes — no trapezoids). If we ever loosen the prompt to allow them, this
+# regex needs to be reworked to distinguish "leading slash in a label" from "trapezoid
+# shape declaration".
 _LEADING_SLASH_IN_LABEL = re.compile(r"\[\s*[/\\]")
+
+# Bracket-balance tolerance. Edge labels can include text with parentheses, so a small
+# mismatch is normal; >4 indicates truncated or malformed output.
+_BRACKET_IMBALANCE_TOLERANCE = 4
 
 # Docker image we build on first use. Lives inside the package so it ships in the
 # wheel; the user doesn't have to clone the repo to use the dockerised path.
 _DOCKER_IMAGE_TAG = "quizz-mermaid-validator:local"
 _DOCKER_BUILD_TIMEOUT_S = 300
 _DOCKER_RUN_TIMEOUT_S = 30
+
+# Cache of `docker image inspect` verdicts across calls within the same process.
+# Without this, a quiz with N mermaid questions × 4 options × possible retries forks
+# `docker image inspect` once per validation — wasteful, and slow if the Docker daemon
+# is unresponsive. None means "not checked yet", True/False are sticky for the process.
+_image_present_cache: bool | None = None
 
 
 def _which(cmd: str) -> str | None:
@@ -69,10 +85,9 @@ def _python_side_check(source: str) -> bool:
         logger.debug("python check: missing/unrecognised diagram header -> reject")
         return False
     # Bracket balance — mermaid uses [], (), {}. Tolerate a small mismatch because
-    # edge labels can include text with parentheses, but a 5+ delta indicates
-    # truncated or malformed output.
+    # edge labels can include text with parentheses.
     for opener, closer in (("[", "]"), ("(", ")"), ("{", "}")):
-        if abs(source.count(opener) - source.count(closer)) > 4:
+        if abs(source.count(opener) - source.count(closer)) > _BRACKET_IMBALANCE_TOLERANCE:
             logger.debug("python check: bracket imbalance for %s/%s -> reject", opener, closer)
             return False
     if _LEADING_SLASH_IN_LABEL.search(source):
@@ -83,7 +98,12 @@ def _python_side_check(source: str) -> bool:
 
 
 def _native_mmdc_validate(mmdc: str, source: str) -> bool:
-    """Run the locally-installed `mmdc` binary as the parse oracle."""
+    """Run the locally-installed `mmdc` binary as the parse oracle.
+
+    Returns False on parse failure OR on subprocess errors (timeout, OSError). A
+    hung mmdc shouldn't crash the quiz-generation retry loop; treat it as "invalid"
+    and let the upstream retry try again with fresh LLM output.
+    """
     import tempfile
 
     logger.debug("validator: native mmdc at %s", mmdc)
@@ -91,12 +111,16 @@ def _native_mmdc_validate(mmdc: str, source: str) -> bool:
         inp = Path(tmp) / "in.mmd"
         out = Path(tmp) / "out.svg"
         inp.write_text(source)
-        result = subprocess.run(
-            [mmdc, "-i", str(inp), "-o", str(out)],
-            capture_output=True,
-            text=True,
-            timeout=_DOCKER_RUN_TIMEOUT_S,
-        )
+        try:
+            result = subprocess.run(
+                [mmdc, "-i", str(inp), "-o", str(out)],
+                capture_output=True,
+                text=True,
+                timeout=_DOCKER_RUN_TIMEOUT_S,
+            )
+        except (subprocess.TimeoutExpired, OSError) as e:
+            logger.debug("native mmdc failed to run (%s) — treating as invalid", e)
+            return False
         ok = result.returncode == 0
         logger.debug("native mmdc verdict: %s", "valid" if ok else "INVALID")
         return ok
@@ -108,15 +132,26 @@ def _docker_image_dir() -> Path:
 
 
 def _docker_image_exists(tag: str) -> bool:
-    result = subprocess.run(
-        ["docker", "image", "inspect", tag],
-        capture_output=True,
-    )
-    return result.returncode == 0
+    """Cached `docker image inspect` check. None → check, then sticky for the process."""
+    global _image_present_cache
+    if _image_present_cache is not None:
+        return _image_present_cache
+    try:
+        result = subprocess.run(
+            ["docker", "image", "inspect", tag],
+            capture_output=True,
+            timeout=_DOCKER_RUN_TIMEOUT_S,
+        )
+        _image_present_cache = result.returncode == 0
+    except (subprocess.TimeoutExpired, OSError) as e:
+        logger.debug("docker image inspect failed (%s) — treating as missing", e)
+        _image_present_cache = False
+    return _image_present_cache
 
 
 def _docker_build_image(tag: str) -> bool:
     """Build the local validator image. Returns True on success, False otherwise."""
+    global _image_present_cache
     image_dir = _docker_image_dir()
     if not (image_dir / "Dockerfile").exists():
         logger.debug("docker build: Dockerfile not found at %s", image_dir)
@@ -126,13 +161,19 @@ def _docker_build_image(tag: str) -> bool:
         err=True,
     )
     logger.debug("docker build: starting (dir=%s, tag=%s)", image_dir, tag)
-    result = subprocess.run(
-        ["docker", "build", "-q", "-t", tag, str(image_dir)],
-        capture_output=True,
-        timeout=_DOCKER_BUILD_TIMEOUT_S,
-    )
+    try:
+        result = subprocess.run(
+            ["docker", "build", "-q", "-t", tag, str(image_dir)],
+            capture_output=True,
+            timeout=_DOCKER_BUILD_TIMEOUT_S,
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        logger.debug("docker build failed to run (%s)", e)
+        return False
     ok = result.returncode == 0
     logger.debug("docker build: %s", "ok" if ok else "FAILED")
+    if ok:
+        _image_present_cache = True
     return ok
 
 
@@ -140,7 +181,9 @@ def _docker_validate(source: str) -> bool | None:
     """Run the dockerised validator. Returns True/False, or None if Docker setup failed.
 
     None means "couldn't run the validator at all" — caller decides whether to fall
-    back to the Python verdict or raise.
+    back to the Python verdict or raise. A failed `docker run` (timeout, daemon
+    unreachable, OSError) also returns None, not False, since "the validator broke"
+    is materially different from "the diagram is invalid".
     """
     logger.debug("validator: dockerised (tag=%s)", _DOCKER_IMAGE_TAG)
     if not _docker_image_exists(_DOCKER_IMAGE_TAG):
@@ -149,14 +192,18 @@ def _docker_validate(source: str) -> bool | None:
             logger.debug("docker build failed — validator unavailable")
             return None
     else:
-        logger.debug("docker image %s already present", _DOCKER_IMAGE_TAG)
-    result = subprocess.run(
-        ["docker", "run", "--rm", "-i", _DOCKER_IMAGE_TAG],
-        input=source,
-        text=True,
-        capture_output=True,
-        timeout=_DOCKER_RUN_TIMEOUT_S,
-    )
+        logger.debug("docker image %s already present (cached)", _DOCKER_IMAGE_TAG)
+    try:
+        result = subprocess.run(
+            ["docker", "run", "--rm", "-i", _DOCKER_IMAGE_TAG],
+            input=source,
+            text=True,
+            capture_output=True,
+            timeout=_DOCKER_RUN_TIMEOUT_S,
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        logger.debug("docker run failed (%s) — validator unavailable", e)
+        return None
     ok = result.returncode == 0
     logger.debug("docker validator verdict: %s", "valid" if ok else "INVALID")
     if not ok and result.stderr:
@@ -169,6 +216,13 @@ def is_valid_mermaid(source: str, *, strict: bool = False) -> bool:
 
     Order: Python regex → native `mmdc` → dockerised validator. The Python check
     is a fast gate; the other two are authoritative when present.
+
+    Note: the Python regex is intentionally conservative — it rejects shapes the
+    artisan prompt doesn't allow (e.g. trapezoids via `[/text\\]`). That means a
+    diagram an authoritative parser would accept *can* be rejected here. This is
+    fine while the artisan prompt forbids those shapes; if the prompt is ever
+    loosened, this gate must be loosened in lockstep (see comment on
+    `_LEADING_SLASH_IN_LABEL`).
     """
     if not _python_side_check(source):
         return False

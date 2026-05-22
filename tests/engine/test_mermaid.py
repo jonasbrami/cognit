@@ -2,7 +2,15 @@ import shutil
 
 import pytest
 
+from quizz.engine import mermaid as mermaid_mod
 from quizz.engine.mermaid import MermaidUnavailable, is_valid_mermaid
+
+
+@pytest.fixture(autouse=True)
+def _reset_image_cache() -> None:
+    """The docker image-presence cache is sticky across calls in real use; reset
+    it before each test so tests don't bleed state into each other."""
+    mermaid_mod._image_present_cache = None
 
 
 # ---------- Native mmdc tests (skip if not installed) ----------
@@ -129,6 +137,54 @@ def test_docker_layer_propagates_parse_failure(monkeypatch: pytest.MonkeyPatch) 
     # Passes the Python check (header + balanced brackets) but the dockerised
     # validator is authoritative and says no.
     assert is_valid_mermaid("flowchart LR\nA --> B", strict=False) is False
+
+
+def test_docker_layer_handles_subprocess_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hung docker daemon (TimeoutExpired) must NOT crash quiz generation. The
+    validator returns None (= "unavailable"), the upstream caller decides."""
+    import subprocess as _subprocess
+
+    def fake_which(cmd: str) -> str | None:
+        return "/usr/bin/docker" if cmd == "docker" else None
+
+    monkeypatch.setattr("quizz.engine.mermaid._which", fake_which)
+
+    def fake_run(args: list[str], **kwargs: object) -> _FakeCompleted:
+        raise _subprocess.TimeoutExpired(cmd=args, timeout=30)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    # No mmdc, docker hangs → falls through to Python verdict (which passes for this src).
+    assert is_valid_mermaid("flowchart LR\nA --> B", strict=False) is True
+
+
+def test_docker_image_inspect_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`docker image inspect` should fire at most once per process — successive
+    validations reuse the cached "image present" verdict."""
+
+    def fake_which(cmd: str) -> str | None:
+        return "/usr/bin/docker" if cmd == "docker" else None
+
+    monkeypatch.setattr("quizz.engine.mermaid._which", fake_which)
+
+    inspect_count = {"n": 0}
+
+    def fake_run(args: list[str], **kwargs: object) -> _FakeCompleted:
+        if "inspect" in args:
+            inspect_count["n"] += 1
+            return _FakeCompleted(0)
+        if "run" in args:
+            return _FakeCompleted(0)
+        return _FakeCompleted(1)
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    assert is_valid_mermaid("flowchart LR\nA --> B", strict=False) is True
+    assert is_valid_mermaid("flowchart LR\nC --> D", strict=False) is True
+    assert is_valid_mermaid("flowchart LR\nE --> F", strict=False) is True
+    assert inspect_count["n"] == 1, (
+        f"expected exactly 1 image inspect call, got {inspect_count['n']}"
+    )
 
 
 def test_docker_layer_builds_image_when_missing(monkeypatch: pytest.MonkeyPatch) -> None:

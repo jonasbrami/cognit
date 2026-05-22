@@ -210,12 +210,16 @@ def _configure_logging() -> None:
     validator is being used, cache hits, and other internal decisions:
 
         QUIZZ_LOG_LEVEL=DEBUG quizz take
+
+    `force=True` so a parent harness (uvicorn, pytest) that already configured
+    root logging doesn't make our env var silently a no-op.
     """
     level_name = os.environ.get("QUIZZ_LOG_LEVEL", "WARNING").upper()
     level = getattr(logging, level_name, logging.WARNING)
     logging.basicConfig(
         level=level,
         format="%(name)s %(levelname)s: %(message)s",
+        force=True,
     )
 
 
