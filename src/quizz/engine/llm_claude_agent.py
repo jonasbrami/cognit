@@ -181,4 +181,29 @@ class ClaudeAgentLLM:
         return MermaidSet.model_validate(args)
 
     def grade_open(self, question_prompt: str, rubric: str, answer: str) -> tuple[int, str]:
-        raise NotImplementedError
+        system = _load_prompt("system_grade.txt")
+        user = _load_prompt("grade_open.txt").format(
+            prompt=question_prompt,
+            rubric=rubric,
+            answer=answer,
+        )
+        schema: dict[str, Any] = {
+            "type": "object",
+            "properties": {
+                "score": {"type": "integer", "minimum": 0, "maximum": 100},
+                "feedback": {"type": "string"},
+            },
+            "required": ["score", "feedback"],
+            "additionalProperties": False,
+        }
+        args = self._invoke_tool(
+            system=system,
+            user=user,
+            tool_name=_TOOL_GRADE,
+            tool_description="Submit a score and feedback for the open-ended answer.",
+            tool_schema=schema,
+        )
+        if args is None:
+            raise RuntimeError(f"agent did not call {_TOOL_GRADE}")
+        score = max(0, min(100, int(args.get("score", 0))))
+        return score, str(args.get("feedback", ""))

@@ -224,3 +224,41 @@ def test_generate_mermaid_set_raises_when_tool_not_called(
             ),
             GenerateRequest(diff="x", pr_title="t", pr_body="b", files={}),
         )
+
+
+# --- grade_open ---
+
+
+def test_grade_open_calls_grade_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, Any] = {}
+
+    def fake_invoke(self: ClaudeAgentLLM, **kw: Any) -> dict[str, Any]:
+        seen.update(kw)
+        return {"score": 75, "feedback": "good"}
+
+    monkeypatch.setattr(ClaudeAgentLLM, "_invoke_tool", fake_invoke)
+    llm = ClaudeAgentLLM()
+    score, fb = llm.grade_open("why?", "must mention X", "because")
+    assert (score, fb) == (75, "good")
+    assert seen["tool_name"] == "submit_grade"
+
+
+def test_grade_open_clamps_score(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Match the Anthropic adapter's clamp to [0, 100]."""
+
+    def fake_invoke(self: ClaudeAgentLLM, **kw: Any) -> dict[str, Any]:
+        return {"score": 150, "feedback": "fine"}
+
+    monkeypatch.setattr(ClaudeAgentLLM, "_invoke_tool", fake_invoke)
+    llm = ClaudeAgentLLM()
+    score, _ = llm.grade_open("why?", "r", "a")
+    assert score == 100
+
+
+def test_grade_open_raises_when_tool_not_called(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(ClaudeAgentLLM, "_invoke_tool", lambda self, **kw: None)
+    llm = ClaudeAgentLLM()
+    with pytest.raises(RuntimeError, match="submit_grade"):
+        llm.grade_open("why?", "r", "a")
