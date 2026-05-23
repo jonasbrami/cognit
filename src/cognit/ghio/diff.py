@@ -31,10 +31,17 @@ def _skip_file_content(path: str) -> bool:
 
 
 def _diff_git_target_path(header: str) -> str:
-    """Extract the `b/<path>` path from a `diff --git a/<path> b/<path>` header line."""
-    parts = header.split()
-    target = parts[-1]
-    return target[2:] if target.startswith("b/") else target
+    """Extract the target (`b/`) path from a `diff --git a/<old> b/<new>` header line.
+
+    Paths may contain spaces (git does not quote them) and are identical when the
+    change is not a rename, so a naive whitespace split truncates names like
+    `a/my file.js b/my file.js`. Split on the last ` b/` separator instead, and
+    strip git's surrounding quotes for non-ASCII names. Falls back to the trailing
+    path component for unexpected headers.
+    """
+    body = header[len("diff --git ") :] if header.startswith("diff --git ") else header
+    target = body.rsplit(" b/", 1)[1] if " b/" in body else body.rsplit("/", 1)[-1]
+    return target.strip().strip('"')
 
 
 def _filter_diff(diff: str) -> str:

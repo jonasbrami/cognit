@@ -3,7 +3,7 @@ import stat
 
 import pytest
 
-from cognit.ghio.diff import fetch_pr_diff
+from cognit.ghio.diff import _diff_git_target_path, _filter_diff, fetch_pr_diff
 
 
 @pytest.fixture
@@ -70,3 +70,32 @@ def test_fetch_pr_diff_strips_vendored_minified_and_lockfiles(fake_gh_pr_diff):
 def test_fetch_pr_diff_preserves_section_order(fake_gh_pr_diff):
     diff = fetch_pr_diff("42")
     assert diff.index("cache.py") < diff.index("src/app.py")
+
+
+def test_diff_git_target_path_handles_spaces_and_renames():
+    # Paths with spaces are not truncated, renames return the b/ (target) path.
+    assert _diff_git_target_path("diff --git a/a file.txt b/a file.txt") == "a file.txt"
+    assert _diff_git_target_path("diff --git a/old.txt b/new.txt") == "new.txt"
+    assert _diff_git_target_path("diff --git a/src/app.py b/src/app.py") == "src/app.py"
+
+
+def test_filter_diff_strips_file_renamed_into_a_minified_path():
+    """A rename whose *target* is denylisted (b/ side) must be dropped wholesale."""
+    diff = (
+        "diff --git a/app.js b/vendor.min.js\n"
+        "similarity index 100%\n"
+        "rename from app.js\n"
+        "rename to vendor.min.js\n"
+        "diff --git a/keep.py b/keep.py\n"
+        "--- a/keep.py\n+++ b/keep.py\n@@ -1 +1 @@\n-x\n+y\n"
+    )
+    out = _filter_diff(diff)
+    assert "vendor.min.js" not in out
+    assert "keep.py" in out
+
+
+def test_filter_diff_keeps_source_file_with_space_in_name():
+    """A real source file with a space in its name must NOT be wrongly stripped."""
+    diff = "diff --git a/my notes.py b/my notes.py\n--- a/my notes.py\n+++ b/my notes.py\n@@ -1 +1 @@\n-a\n+b\n"
+    out = _filter_diff(diff)
+    assert "my notes.py" in out

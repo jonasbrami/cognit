@@ -189,7 +189,12 @@ def _run_generation(
             llm=llm,
             model=model,
         )
-    except (ValidationError, RuntimeError) as e:
+    except Exception as e:
+        # Terminal background thread: its whole job is to report failure to the
+        # browser. Catch broadly — besides ValidationError/RuntimeError, the agent's
+        # `pr_diff` tool can raise subprocess.CalledProcessError (gh failure), which
+        # must flip the broker to `error` rather than escaping and leaving the page
+        # polling `generating` forever.
         typer.echo(f"quiz generation failed: {e}", err=True)
         broker.set_error(str(e))
         return
@@ -244,7 +249,7 @@ def _run_take_flow(
     prep = _prepare_generation(pr_url, min_diff_lines, max_diff_lines)
     if prep is None:
         return
-    typer.echo("generating quiz from diff...")
+    typer.echo("generating quiz...")
 
     def on_generate(broker: Broker) -> None:
         _run_generation(broker, prep=prep, pr_url=pr_url, llm=llm, model=model)

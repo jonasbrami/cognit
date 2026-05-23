@@ -160,8 +160,38 @@ def test_generate_quiz_outline_restricts_to_readonly_tools(
     assert opts.cwd == "/repo/root"
     assert opts.max_turns == 30
     assert opts.permission_mode == "bypassPermissions"
+    # A PreToolUse hook confines the read tools to the repo (defense-in-depth under
+    # bypassPermissions, which skips permission rules).
+    assert "PreToolUse" in opts.hooks
+    assert opts.hooks["PreToolUse"][0].matcher == "Read|Grep|Glob"
     # PR context reaches the prompt.
     assert "feat/x" in seen["prompt"]
+
+
+def test_read_confinement_hook_denies_paths_outside_repo() -> None:
+    """The PreToolUse read-confinement hook denies absolute/`..`-escaping reads and
+    allows paths inside the repo (relative paths resolve against the root)."""
+    matcher = llm_mod._read_confinement_hook("/repo/root")
+    assert matcher.matcher == "Read|Grep|Glob"
+    hook = matcher.hooks[0]
+
+    def run(tool_name: str, tool_input: dict[str, Any]) -> dict[str, Any]:
+        return asyncio.run(hook({"tool_name": tool_name, "tool_input": tool_input}, None, {}))
+
+    def denied(out: dict[str, Any]) -> bool:
+        return out.get("hookSpecificOutput", {}).get("permissionDecision") == "deny"
+
+    # Outside the repo (absolute) -> denied.
+    assert denied(run("Read", {"file_path": "/etc/passwd"}))
+    assert denied(run("Read", {"file_path": "/home/someone/.ssh/id_rsa"}))
+    # Relative path escaping the repo -> denied.
+    assert denied(run("Read", {"file_path": "../../etc/passwd"}))
+    assert denied(run("Grep", {"path": "/repo/other"}))
+    # Inside the repo -> allowed (no decision emitted).
+    assert not denied(run("Read", {"file_path": "src/app.py"}))
+    assert not denied(run("Read", {"file_path": "/repo/root/src/app.py"}))
+    # No path given (Grep/Glob default to cwd) -> allowed.
+    assert not denied(run("Glob", {"pattern": "**/*.py"}))
 
 
 def test_generate_quiz_outline_registers_pr_diff_and_submit_tools(

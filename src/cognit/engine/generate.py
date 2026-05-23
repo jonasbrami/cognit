@@ -108,6 +108,9 @@ def generate_quiz(
     # `max_mermaid_workers=1` (serial) is safe for hobby-tier accounts; bursting
     # 4+ concurrent Sonnet calls in the same second is a realistic 429 trigger on tier-1
     # rate limits. Bump this for accounts that have headroom.
+    # NOTE: values >1 also race the adapter's shared `_current_tool` activity label
+    # (read by the streaming sink), which would mislabel the live feed — localize that
+    # per-call before parallelizing.
     req = GenerateRequest(
         pr_title=pr_title,
         pr_body=pr_body,

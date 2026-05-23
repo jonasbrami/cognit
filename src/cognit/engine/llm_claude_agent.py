@@ -27,7 +27,8 @@ import os
 import subprocess
 from collections.abc import Awaitable, Callable
 from importlib import resources
-from typing import Any
+from pathlib import Path
+from typing import Any, cast
 
 from claude_agent_sdk import (
     AssistantMessage,
@@ -35,6 +36,8 @@ from claude_agent_sdk import (
     ClaudeSDKError,
     CLIConnectionError,
     CLINotFoundError,
+    HookCallback,
+    HookMatcher,
     ProcessError,
     TextBlock,
     ToolUseBlock,
@@ -88,6 +91,48 @@ def _repo_root() -> str:
         return os.getcwd()
 
 
+def _read_confinement_hook(repo_root: str) -> HookMatcher:
+    """A PreToolUse hook that denies `Read`/`Grep`/`Glob` outside `repo_root`.
+
+    The outline agent runs with `permission_mode="bypassPermissions"`, which
+    auto-approves every *available* tool and bypasses permission *rules* — so a
+    prompt-injected hostile PR could otherwise coax it into reading host secrets
+    (`~/.ssh`, `~/.aws`) via an absolute or `../`-escaping path. PreToolUse hooks
+    still fire under bypassPermissions, so we gate filesystem reads here: a relative
+    path resolves against the agent's cwd (the repo root) and is allowed; any
+    resolved path that escapes the repo is denied. Defense-in-depth around the
+    (load-bearing) `tools=` availability restriction.
+    """
+    root = Path(repo_root).resolve()
+
+    async def _hook(
+        hook_input: dict[str, Any], tool_use_id: str | None, context: Any
+    ) -> dict[str, Any]:
+        tool_input = hook_input.get("tool_input") or {}
+        for key in ("file_path", "path", "notebook_path"):
+            raw = tool_input.get(key)
+            if not raw:
+                continue
+            candidate = Path(str(raw))
+            target = (candidate if candidate.is_absolute() else root / candidate).resolve()
+            if target != root and root not in target.parents:
+                return {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": (
+                            f"cognit confines reads to the repository at {root}; "
+                            f"refusing to access {target}."
+                        ),
+                    }
+                }
+        return {}
+
+    # `_hook` takes the raw control-protocol dict (accurate to runtime); cast to the
+    # SDK's TypedDict-union HookCallback signature.
+    return HookMatcher(matcher="Read|Grep|Glob", hooks=[cast(HookCallback, _hook)])
+
+
 class ClaudeAgentLLM:
     def __init__(self, model: str = "claude-sonnet-4-6") -> None:
         self._model = model
@@ -110,12 +155,14 @@ class ClaudeAgentLLM:
         max_turns: int,
         cwd: str | None,
         handler: _ToolHandler,
+        hooks: Any = None,
     ) -> None:
         """Build options and drive the SDK, mapping every failure to RuntimeError.
 
         `tools` is the availability restriction (CLI `--tools`); `allowed_tools` only
-        auto-approves. The RuntimeError mapping is load-bearing — take.py and the tests
-        rely on a single error type from this adapter.
+        auto-approves. `hooks` (PreToolUse) fire even under bypassPermissions and are
+        used to confine the outline agent's reads to the repo. The RuntimeError mapping
+        is load-bearing — take.py and the tests rely on a single error type here.
         """
         options = ClaudeAgentOptions(
             system_prompt=system,
@@ -127,6 +174,7 @@ class ClaudeAgentLLM:
             cwd=cwd,
             permission_mode="bypassPermissions",
             setting_sources=[],
+            hooks=hooks,
         )
         try:
             self._drain_agent(prompt=user, options=options, handler=handler)
@@ -261,6 +309,7 @@ class ClaudeAgentLLM:
         )(submit_handler)
         server = create_sdk_mcp_server(name="cognit", tools=[pr_diff_tool, submit_tool])
 
+        repo_root = _repo_root()
         self._run_agent(
             system=system,
             user=user,
@@ -272,8 +321,10 @@ class ClaudeAgentLLM:
             ],
             tools=_OUTLINE_BUILTIN_TOOLS,
             max_turns=_OUTLINE_MAX_TURNS,
-            cwd=_repo_root(),
+            cwd=repo_root,
             handler=submit_handler,
+            # Confine the read tools to the checkout (bypassPermissions skips rules).
+            hooks={"PreToolUse": [_read_confinement_hook(repo_root)]},
         )
         if not captured:
             raise RuntimeError(f"agent did not call {_TOOL_OUTLINE}")

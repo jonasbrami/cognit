@@ -246,8 +246,8 @@ def test_take_surfaces_malformed_quiz_as_error_phase(monkeypatch: pytest.MonkeyP
         llm=BoomLLM(),  # type: ignore[arg-type]
     )
     assert served["broker"].phase == "error"  # type: ignore[attr-defined]
-    # The validation failure is surfaced to the browser via the broker (non-empty message).
-    assert served["broker"].error  # type: ignore[attr-defined]
+    # Distinct from the RuntimeError test: assert the surfaced message is a validation failure.
+    assert "validation error" in served["broker"].error.lower()  # type: ignore[attr-defined]
     # A failed generation must not be cached.
     assert not _cache_path("https://github.com/o/r/pull/1").exists()
 
@@ -287,3 +287,40 @@ def test_take_surfaces_runtime_error_from_agent_as_error_phase(
     )
     assert served["broker"].phase == "error"  # type: ignore[attr-defined]
     assert "claude binary not found" in served["broker"].error  # type: ignore[attr-defined]
+
+
+def test_take_surfaces_unexpected_subprocess_error_as_error_phase(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-(ValidationError/RuntimeError) escape from the worker — e.g. the agent's
+    pr_diff tool raising subprocess.CalledProcessError on a `gh` failure — must still
+    flip the broker to error, not leave the browser polling `generating` forever."""
+    import subprocess
+
+    from cognit.cli.take import _run_take_flow
+
+    class BoomLLM:
+        def generate_quiz_outline(self, req):  # type: ignore[no-untyped-def]
+            raise subprocess.CalledProcessError(1, ["gh", "pr", "diff"])
+
+        def generate_mermaid_set(self, spec, req):  # type: ignore[no-untyped-def]
+            raise AssertionError("should not be reached")
+
+        def grade_open(self, *args):  # type: ignore[no-untyped-def]
+            return (0, "")
+
+    monkeypatch.setattr(
+        "cognit.cli.take.fetch_pr_info",
+        lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
+    )
+    monkeypatch.setattr("cognit.cli.take.fetch_pr_diff", lambda pr: "a\n" * 100)
+    served: dict[str, object] = {}
+    monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve(served))
+
+    _run_take_flow(
+        "https://github.com/o/r/pull/1",
+        show_results_only=False,
+        llm=BoomLLM(),  # type: ignore[arg-type]
+    )
+    assert served["broker"].phase == "error"  # type: ignore[attr-defined]
+    assert not _cache_path("https://github.com/o/r/pull/1").exists()
