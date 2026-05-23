@@ -15,13 +15,13 @@
 ## File Structure
 
 **New files:**
-- `src/quizz/engine/llm_claude_agent.py` — `ClaudeAgentLLM` class
+- `src/cognit/engine/llm_claude_agent.py` — `ClaudeAgentLLM` class
 - `tests/engine/test_llm_claude_agent.py` — unit + one integration test
 - `tests/cli/test_take_select.py` — `_make_llm` selection logic
 
 **Modified files:**
 - `pyproject.toml` — add `claude-agent-sdk>=0.1.44` to runtime deps
-- `src/quizz/cli/take.py` — `_make_llm` selection + `RuntimeError` in `_generate_and_post` exception clause
+- `src/cognit/cli/take.py` — `_make_llm` selection + `RuntimeError` in `_generate_and_post` exception clause
 
 ---
 
@@ -68,14 +68,14 @@ git commit -m "build: add claude-agent-sdk runtime dep"
 ## Task 2: Skeleton `ClaudeAgentLLM` (no behavior yet)
 
 **Files:**
-- Create: `src/quizz/engine/llm_claude_agent.py`
+- Create: `src/cognit/engine/llm_claude_agent.py`
 
 - [ ] **Step 1: Write the skeleton**
 
-Create `src/quizz/engine/llm_claude_agent.py`:
+Create `src/cognit/engine/llm_claude_agent.py`:
 
 ```python
-"""claude_agent_sdk-based LLM adapter for quizz.
+"""claude_agent_sdk-based LLM adapter for cognit.
 
 Routes inference through the official `claude` binary (subprocessed by
 claude_agent_sdk) so users on the Claude Code OAuth path can use sonnet/opus.
@@ -105,8 +105,8 @@ from claude_agent_sdk import (
     tool,
 )
 
-from quizz.engine.llm import GenerateRequest
-from quizz.engine.models import MermaidSet, MermaidSpec, QuizOutline
+from cognit.engine.llm import GenerateRequest
+from cognit.engine.models import MermaidSet, MermaidSpec, QuizOutline
 
 _TOOL_OUTLINE = "submit_quiz_outline"
 _TOOL_MERMAID = "submit_mermaid_set"
@@ -114,7 +114,7 @@ _TOOL_GRADE = "submit_grade"
 
 
 def _load_prompt(name: str) -> str:
-    return resources.files("quizz.engine.prompts").joinpath(name).read_text()
+    return resources.files("cognit.engine.prompts").joinpath(name).read_text()
 
 
 def _format_files_blob(files: dict[str, str]) -> str:
@@ -155,16 +155,16 @@ class ClaudeAgentLLM:
 
 - [ ] **Step 2: Verify import + type-check**
 
-Run: `uv run python -c "from quizz.engine.llm_claude_agent import ClaudeAgentLLM; print(ClaudeAgentLLM)"`
+Run: `uv run python -c "from cognit.engine.llm_claude_agent import ClaudeAgentLLM; print(ClaudeAgentLLM)"`
 Expected: prints the class.
 
-Run: `uv run mypy src/quizz/engine/llm_claude_agent.py`
+Run: `uv run mypy src/cognit/engine/llm_claude_agent.py`
 Expected: PASS.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add src/quizz/engine/llm_claude_agent.py
+git add src/cognit/engine/llm_claude_agent.py
 git commit -m "feat(engine): scaffold ClaudeAgentLLM adapter skeleton"
 ```
 
@@ -173,7 +173,7 @@ git commit -m "feat(engine): scaffold ClaudeAgentLLM adapter skeleton"
 ## Task 3: Implement `_invoke_tool` (the SDK plumbing)
 
 **Files:**
-- Modify: `src/quizz/engine/llm_claude_agent.py:_invoke_tool`
+- Modify: `src/cognit/engine/llm_claude_agent.py:_invoke_tool`
 - Create: `tests/engine/test_llm_claude_agent.py`
 
 - [ ] **Step 1: Write the failing integration test**
@@ -197,9 +197,9 @@ from typing import Any
 
 import pytest
 
-from quizz.engine.llm import GenerateRequest
-from quizz.engine.llm_claude_agent import ClaudeAgentLLM
-from quizz.engine.models import MCQQuestion, MermaidSet, MermaidSpec, QuizOutline
+from cognit.engine.llm import GenerateRequest
+from cognit.engine.llm_claude_agent import ClaudeAgentLLM
+from cognit.engine.models import MCQQuestion, MermaidSet, MermaidSpec, QuizOutline
 
 
 class _FakeAssistantMessage:
@@ -221,13 +221,13 @@ def _make_fake_query(
     """Build an async-generator function that simulates the agent calling our MCP tool."""
 
     async def fake_query(*, prompt: str, options: Any) -> AsyncIterator[Any]:
-        # The handler is registered inside an SdkMcpTool inside options.mcp_servers["quizz"].
+        # The handler is registered inside an SdkMcpTool inside options.mcp_servers["cognit"].
         # We don't try to extract it via the MCP machinery — _invoke_tool's contract is
         # "after the stream ends, captured contains the args if the agent called the tool".
         # We simulate that by directly calling the tool's handler, which the SDK would do
-        # when the agent invokes mcp__quizz__<tool>.
+        # when the agent invokes mcp__cognit__<tool>.
         if canned_args is not None:
-            srv = options.mcp_servers["quizz"]
+            srv = options.mcp_servers["cognit"]
             tool_def = srv["tools"][0]
             assert tool_def.name == tool_name_expected, (
                 f"expected tool {tool_name_expected}, got {tool_def.name}"
@@ -243,7 +243,7 @@ def test_invoke_tool_returns_captured_args(monkeypatch: pytest.MonkeyPatch) -> N
     """Integration test: full _invoke_tool path with query() mocked at the SDK boundary."""
     canned = {"foo": "bar", "n": 42}
     monkeypatch.setattr(
-        "quizz.engine.llm_claude_agent.query",
+        "cognit.engine.llm_claude_agent.query",
         _make_fake_query(canned_args=canned, tool_name_expected="my_tool"),
     )
     llm = ClaudeAgentLLM()
@@ -262,7 +262,7 @@ def test_invoke_tool_returns_none_when_tool_not_called(
 ) -> None:
     """If the agent chats without calling the tool, _invoke_tool returns None."""
     monkeypatch.setattr(
-        "quizz.engine.llm_claude_agent.query",
+        "cognit.engine.llm_claude_agent.query",
         _make_fake_query(canned_args=None, tool_name_expected="my_tool"),
     )
     llm = ClaudeAgentLLM()
@@ -285,7 +285,7 @@ Expected: FAIL with `NotImplementedError`.
 
 - [ ] **Step 3: Implement `_invoke_tool`**
 
-Replace the stub in `src/quizz/engine/llm_claude_agent.py`:
+Replace the stub in `src/cognit/engine/llm_claude_agent.py`:
 
 ```python
     def _invoke_tool(
@@ -304,12 +304,12 @@ Replace the stub in `src/quizz/engine/llm_claude_agent.py`:
             captured.append(args)
             return {"content": [{"type": "text", "text": "ok"}]}
 
-        server = create_sdk_mcp_server(name="quizz", tools=[handler])
+        server = create_sdk_mcp_server(name="cognit", tools=[handler])
         options = ClaudeAgentOptions(
             system_prompt=system,
             model=self._model,
-            mcp_servers={"quizz": server},
-            allowed_tools=[f"mcp__quizz__{tool_name}"],
+            mcp_servers={"cognit": server},
+            allowed_tools=[f"mcp__cognit__{tool_name}"],
             max_turns=2,
             permission_mode="bypassPermissions",
             setting_sources=[],
@@ -337,12 +337,12 @@ Replace the stub in `src/quizz/engine/llm_claude_agent.py`:
 Run: `uv run pytest tests/engine/test_llm_claude_agent.py -v`
 Expected: 2 passed.
 
-If the fake-query's access path `options.mcp_servers["quizz"]["tools"][0]` fails: drop the `tool_def` lookup in the test, expose the handler via a module-level captured-handler hook (`monkeypatch.setattr` on a `_HANDLER_FOR_TEST` attribute set inside `_invoke_tool`), and invoke that in the fake. Don't lock the SDK's internal shape into the production code.
+If the fake-query's access path `options.mcp_servers["cognit"]["tools"][0]` fails: drop the `tool_def` lookup in the test, expose the handler via a module-level captured-handler hook (`monkeypatch.setattr` on a `_HANDLER_FOR_TEST` attribute set inside `_invoke_tool`), and invoke that in the fake. Don't lock the SDK's internal shape into the production code.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/quizz/engine/llm_claude_agent.py tests/engine/test_llm_claude_agent.py
+git add src/cognit/engine/llm_claude_agent.py tests/engine/test_llm_claude_agent.py
 git commit -m "feat(engine): implement _invoke_tool via in-process MCP tool"
 ```
 
@@ -351,7 +351,7 @@ git commit -m "feat(engine): implement _invoke_tool via in-process MCP tool"
 ## Task 4: TDD `generate_quiz_outline`
 
 **Files:**
-- Modify: `src/quizz/engine/llm_claude_agent.py:generate_quiz_outline`
+- Modify: `src/cognit/engine/llm_claude_agent.py:generate_quiz_outline`
 - Modify: `tests/engine/test_llm_claude_agent.py` (append)
 
 - [ ] **Step 1: Write the failing test**
@@ -422,7 +422,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/quizz/engine/llm_claude_agent.py tests/engine/test_llm_claude_agent.py
+git add src/cognit/engine/llm_claude_agent.py tests/engine/test_llm_claude_agent.py
 git commit -m "feat(engine): ClaudeAgentLLM.generate_quiz_outline"
 ```
 
@@ -431,7 +431,7 @@ git commit -m "feat(engine): ClaudeAgentLLM.generate_quiz_outline"
 ## Task 5: TDD `generate_mermaid_set`
 
 **Files:**
-- Modify: `src/quizz/engine/llm_claude_agent.py:generate_mermaid_set`
+- Modify: `src/cognit/engine/llm_claude_agent.py:generate_mermaid_set`
 - Modify: `tests/engine/test_llm_claude_agent.py` (append)
 
 - [ ] **Step 1: Write the failing test**
@@ -529,7 +529,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/quizz/engine/llm_claude_agent.py tests/engine/test_llm_claude_agent.py
+git add src/cognit/engine/llm_claude_agent.py tests/engine/test_llm_claude_agent.py
 git commit -m "feat(engine): ClaudeAgentLLM.generate_mermaid_set"
 ```
 
@@ -538,7 +538,7 @@ git commit -m "feat(engine): ClaudeAgentLLM.generate_mermaid_set"
 ## Task 6: TDD `grade_open`
 
 **Files:**
-- Modify: `src/quizz/engine/llm_claude_agent.py:grade_open`
+- Modify: `src/cognit/engine/llm_claude_agent.py:grade_open`
 - Modify: `tests/engine/test_llm_claude_agent.py` (append)
 
 - [ ] **Step 1: Write the failing test**
@@ -617,7 +617,7 @@ Expected: all tests in file PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/quizz/engine/llm_claude_agent.py tests/engine/test_llm_claude_agent.py
+git add src/cognit/engine/llm_claude_agent.py tests/engine/test_llm_claude_agent.py
 git commit -m "feat(engine): ClaudeAgentLLM.grade_open"
 ```
 
@@ -642,7 +642,7 @@ def test_cli_not_found_raises_runtime_with_install_hint(
         raise CLINotFoundError("not found")
         yield  # pragma: no cover  (make it a generator)
 
-    monkeypatch.setattr("quizz.engine.llm_claude_agent.query", fake_query)
+    monkeypatch.setattr("cognit.engine.llm_claude_agent.query", fake_query)
     llm = ClaudeAgentLLM()
     with pytest.raises(RuntimeError, match="claude binary not found"):
         llm._invoke_tool(
@@ -688,7 +688,7 @@ git commit -m "test(engine): cover CLINotFoundError and missing-tool-call paths"
 ## Task 8: TDD `_make_llm` selection in `cli/take.py`
 
 **Files:**
-- Modify: `src/quizz/cli/take.py:_make_llm` (~line 30–32)
+- Modify: `src/cognit/cli/take.py:_make_llm` (~line 30–32)
 - Create: `tests/cli/test_take_select.py`
 
 - [ ] **Step 1: Write the failing tests**
@@ -703,9 +703,9 @@ from __future__ import annotations
 
 import pytest
 
-from quizz.cli.take import _make_llm
-from quizz.engine.llm_anthropic import AnthropicLLM
-from quizz.engine.llm_claude_agent import ClaudeAgentLLM
+from cognit.cli.take import _make_llm
+from cognit.engine.llm_anthropic import AnthropicLLM
+from cognit.engine.llm_claude_agent import ClaudeAgentLLM
 
 
 def test_make_llm_uses_anthropic_when_api_key_set(
@@ -731,12 +731,12 @@ Expected: FAIL on the second test (current `_make_llm` always returns `Anthropic
 
 - [ ] **Step 3: Implement**
 
-Edit `src/quizz/cli/take.py` — add `os` import if missing, replace `_make_llm`:
+Edit `src/cognit/cli/take.py` — add `os` import if missing, replace `_make_llm`:
 
 ```python
 import os
 # ... existing imports ...
-from quizz.engine.llm_claude_agent import ClaudeAgentLLM
+from cognit.engine.llm_claude_agent import ClaudeAgentLLM
 
 # ...
 
@@ -766,7 +766,7 @@ Expected: all PASS. If `test_take_auto_detects` fails, it's because `_make_llm` 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/quizz/cli/take.py tests/cli/test_take_select.py
+git add src/cognit/cli/take.py tests/cli/test_take_select.py
 git commit -m "feat(cli): select ClaudeAgentLLM when ANTHROPIC_API_KEY absent"
 ```
 
@@ -775,7 +775,7 @@ git commit -m "feat(cli): select ClaudeAgentLLM when ANTHROPIC_API_KEY absent"
 ## Task 9: Wire `RuntimeError` into `take.py` error handling
 
 **Files:**
-- Modify: `src/quizz/cli/take.py:_generate_and_post` (the `except` chain around line 96–111)
+- Modify: `src/cognit/cli/take.py:_generate_and_post` (the `except` chain around line 96–111)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -784,7 +784,7 @@ Append to `tests/cli/test_take.py`:
 ```python
 def test_take_handles_runtime_error_from_agent(monkeypatch: pytest.MonkeyPatch) -> None:
     """ClaudeAgentLLM maps SDK errors to RuntimeError; take.py must exit 1 with a message."""
-    from quizz.cli.take import _run_take_flow
+    from cognit.cli.take import _run_take_flow
 
     class BoomLLM:
         def generate_quiz_outline(self, req):  # type: ignore[no-untyped-def]
@@ -796,13 +796,13 @@ def test_take_handles_runtime_error_from_agent(monkeypatch: pytest.MonkeyPatch) 
         def grade_open(self, *args):  # type: ignore[no-untyped-def]
             return (0, "")
 
-    monkeypatch.setattr("quizz.cli.take.find_latest_marker_comment", lambda pr, marker: None)
+    monkeypatch.setattr("cognit.cli.take.find_latest_marker_comment", lambda pr, marker: None)
     monkeypatch.setattr(
-        "quizz.cli.take.fetch_pr_info",
+        "cognit.cli.take.fetch_pr_info",
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "quizz.cli.take.fetch_diff_and_files",
+        "cognit.cli.take.fetch_diff_and_files",
         lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
     )
 
@@ -822,7 +822,7 @@ Expected: FAIL — the current `except` chain doesn't catch `RuntimeError`, so i
 
 - [ ] **Step 3: Implement**
 
-Edit `src/quizz/cli/take.py:_generate_and_post`, replace the existing `try`/`except` block:
+Edit `src/cognit/cli/take.py:_generate_and_post`, replace the existing `try`/`except` block:
 
 ```python
     try:
@@ -854,7 +854,7 @@ Expected: all PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/quizz/cli/take.py tests/cli/test_take.py
+git add src/cognit/cli/take.py tests/cli/test_take.py
 git commit -m "feat(cli): surface ClaudeAgentLLM RuntimeError as exit 1 + message"
 ```
 
@@ -900,31 +900,31 @@ This validates the full end-to-end path with a real `claude` binary subprocess.
 - [ ] **Step 1: Clear PR #5's quiz comment so generation re-runs**
 
 ```bash
-gh api repos/jonasbrami/quizz/issues/5/comments --jq '.[] | select(.body | startswith("<!-- quizz:quiz v1 -->")) | .id' \
-  | xargs -I {} gh api -X DELETE repos/jonasbrami/quizz/issues/{}/comments  # NOTE: gh api path for deleting an issue comment is /repos/.../issues/comments/{id} — adjust if the above shape is wrong
+gh api repos/jonasbrami/cognit/issues/5/comments --jq '.[] | select(.body | startswith("<!-- cognit:quiz v1 -->")) | .id' \
+  | xargs -I {} gh api -X DELETE repos/jonasbrami/cognit/issues/{}/comments  # NOTE: gh api path for deleting an issue comment is /repos/.../issues/comments/{id} — adjust if the above shape is wrong
 ```
 
-(If that one-liner doesn't fit your gh version, do it through the web UI or `gh pr view 5 --json comments` + `gh api -X DELETE /repos/jonasbrami/quizz/issues/comments/<id>`.)
+(If that one-liner doesn't fit your gh version, do it through the web UI or `gh pr view 5 --json comments` + `gh api -X DELETE /repos/jonasbrami/cognit/issues/comments/<id>`.)
 
 - [ ] **Step 2: Confirm no API key in env**
 
 Run: `echo "ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-<unset>}"`
 Expected: `<unset>`. If a key is set, run `unset ANTHROPIC_API_KEY` first.
 
-- [ ] **Step 3: Install the worktree's quizz into the venv used for runs**
+- [ ] **Step 3: Install the worktree's cognit into the venv used for runs**
 
 Run: `uv pip install -e .`
 Expected: installs in editable mode.
 
-- [ ] **Step 4: Run `quizz take` against PR #5 with sonnet**
+- [ ] **Step 4: Run `cognit take` against PR #5 with sonnet**
 
-Run: `BROWSER=true timeout 180 quizz take --pr https://github.com/jonasbrami/quizz/pull/5 --model claude-sonnet-4-6 2>&1 | tee /tmp/quizz-sonnet-agent.log`
+Run: `BROWSER=true timeout 180 cognit take --pr https://github.com/jonasbrami/cognit/pull/5 --model claude-sonnet-4-6 2>&1 | tee /tmp/cognit-sonnet-agent.log`
 Expected: `generating quiz from diff...`, then `quiz comment posted to PR.`, then `opening http://127.0.0.1:...`. Exit on timeout (the server hangs by design until Ctrl-C).
 
 - [ ] **Step 5: Repeat with opus**
 
 (Clear the quiz comment first, same as Step 1.)
-Run: `BROWSER=true timeout 180 quizz take --pr https://github.com/jonasbrami/quizz/pull/5 --model claude-opus-4-7 2>&1 | tee /tmp/quizz-opus-agent.log`
+Run: `BROWSER=true timeout 180 cognit take --pr https://github.com/jonasbrami/cognit/pull/5 --model claude-opus-4-7 2>&1 | tee /tmp/cognit-opus-agent.log`
 Expected: same shape — generation succeeds, comment posted, server starts.
 
 - [ ] **Step 6: If both succeed: commit a note + announce ready**

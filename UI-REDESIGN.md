@@ -4,17 +4,17 @@
 
 The v1 editorial UI (warm paper, Fraunces serif, narrow column, rust accent) is polished but the author rejected it as a fit for a dev tool. After a five-direction brainstorm (mockups at `mockups/`: terminal · github · brutalist · arcade · notebook) the **github-native** direction was picked.
 
-The redesign goal is to make `quizz take` feel like an extension of the PR review surface — the place dev work already happens — instead of an editorial aside. Same engine, same flow, new clothes.
+The redesign goal is to make `cognit take` feel like an extension of the PR review surface — the place dev work already happens — instead of an editorial aside. Same engine, same flow, new clothes.
 
 ## Scope
 
-**In scope.** The browser surface served by `src/quizz/server/`. Three states of a single-page app:
+**In scope.** The browser surface served by `src/cognit/server/`. Three states of a single-page app:
 
 1. **Question state** — the form the author fills out
 2. **Results state** — post-submit, scored locally, not yet published
 3. **Published state** — after the author clicks publish, comment is live on the PR
 
-**Out of scope.** Engine, CLI, comment markdown (`src/quizz/comment/render.py`), grading logic, question generation, dark mode, i18n, print styles. Backend is *almost* out of scope — one exception: `POST /publish` gains a `comment_url` field in its response (see Risks). This is otherwise a UI-only swap.
+**Out of scope.** Engine, CLI, comment markdown (`src/cognit/comment/render.py`), grading logic, question generation, dark mode, i18n, print styles. Backend is *almost* out of scope — one exception: `POST /publish` gains a `comment_url` field in its response (see Risks). This is otherwise a UI-only swap.
 
 ## Decisions
 
@@ -23,22 +23,22 @@ Three questions raised during the mockup review were answered:
 | # | Question | Decision |
 |---|---|---|
 | 1 | Use the GitHub "files" metaphor for questions? | **No.** Keep the card/header chrome, but label cards `Question 1` / `Question 2`. Drop the fake `.mcq` / `.open` extensions and the "Answered" viewed-checkbox. Questions aren't files; the metaphor ages badly. |
-| 2 | Render a rich posted-comment preview in `published.html`? | **No.** The published view shows a success banner and a *link* to the posted comment. Rich per-question breakdown stays in the local results view. The PR comment itself remains a simple markdown table (handled by `src/quizz/comment/render.py`, no change). |
+| 2 | Render a rich posted-comment preview in `published.html`? | **No.** The published view shows a success banner and a *link* to the posted comment. Rich per-question breakdown stays in the local results view. The PR comment itself remains a simple markdown table (handled by `src/cognit/comment/render.py`, no change). |
 | 3 | Three-band score ring (red / orange / green)? | **No.** Single neutral ink color (`#1f2328`) always. The score is data, not a verdict. "Failing is the point" doesn't survive a traffic light. |
 
 Two more decisions made implicitly by the mock-review:
 
 | # | Question | Decision |
 |---|---|---|
-| 4 | Should the fake top bar say "GitHub"? | **No** — it says **quizz** with the same dark-bar visual chrome. Pretending to be GitHub is dishonest and breaks the moment the user looks at the URL. |
+| 4 | Should the fake top bar say "GitHub"? | **No** — it says **cognit** with the same dark-bar visual chrome. Pretending to be GitHub is dishonest and breaks the moment the user looks at the URL. |
 | 5 | Keep the sidebar? | **Yes.** It carries the progress / score / timeline signal and matches the GitHub PR layout that anchors the whole aesthetic. Stacks above content on mobile (already wired in the mocks). |
 
 ## Architecture
 
-No new code paths, no new endpoints. The FastAPI app at `src/quizz/server/app.py` keeps its three routes (`GET /`, `POST /submit`, `POST /publish`) and its three template substitutions (`__PR__`, `__PR_URL__`, `__QUIZ_JSON__`). The redesign is a full replacement of three files:
+No new code paths, no new endpoints. The FastAPI app at `src/cognit/server/app.py` keeps its three routes (`GET /`, `POST /submit`, `POST /publish`) and its three template substitutions (`__PR__`, `__PR_URL__`, `__QUIZ_JSON__`). The redesign is a full replacement of three files:
 
 ```
-src/quizz/server/assets/
+src/cognit/server/assets/
 ├── index.html       ← rewrite: github-native shell (topbar, repo header, tabs, sidebar, sticky bar)
 ├── styles.css       ← rewrite: light theme, Primer-inspired tokens, JetBrains Mono for code
 └── quiz.js          ← rewrite render functions: questions / results / published
@@ -94,7 +94,7 @@ To keep the rewrite reviewable, the CSS should be organized by these named secti
 ```
 /* tokens          */  CSS custom properties (Primer-ish: --fg, --fg-mute, --blue, --green, ...)
 /* base            */  reset, typography, links, body bg
-/* topbar          */  dark "quizz" bar (decorative chrome)
+/* topbar          */  dark "cognit" bar (decorative chrome)
 /* repohead        */  breadcrumb, PR title, meta row, tab strip
 /* container       */  main + sidebar grid
 /* card            */  shared question/result card chrome
@@ -160,7 +160,7 @@ Already battle-tested in the mocks at 1440 / 720 / 390 widths. Carry the pattern
 ## Out of scope (explicit)
 
 - Dark mode
-- Comment markdown changes (`src/quizz/comment/render.py` unchanged)
+- Comment markdown changes (`src/cognit/comment/render.py` unchanged)
 - New question types
 - Engine/grading changes
 - Real GitHub Primer CSS dependency (we use our own tokens that *match* Primer values, no npm dep)
@@ -169,12 +169,12 @@ Already battle-tested in the mocks at 1440 / 720 / 390 widths. Carry the pattern
 
 ## Risks & open implementation decisions
 
-1. **`POST /publish` response shape.** Adding `comment_url` is the one back-end change. Need to confirm `src/quizz/ghio/` exposes the URL of the comment after creation — if it doesn't, the banner falls back to a generic "View on GitHub" link to the PR.
+1. **`POST /publish` response shape.** Adding `comment_url` is the one back-end change. Need to confirm `src/cognit/ghio/` exposes the URL of the comment after creation — if it doesn't, the banner falls back to a generic "View on GitHub" link to the PR.
 2. **Mermaid render timing.** Mermaid sometimes renders nodes wider than their container, causing horizontal overflow. The current code uses `mermaid.run()` after each render — we'll need to call it again after `renderResults` / `renderPublished` if any mermaid blocks are still in the DOM (results state shows the user's diagram pick + correct one).
 3. **The fake topbar / repo header may feel performative.** It's chrome that mimics GitHub *without* being it. Acceptable for v1 but worth re-evaluating after first use — if it reads as cute-but-empty, we strip it to just the breadcrumb + PR title.
 
 ## Testing
 
-- The existing Playwright test driver (`/tmp/quizz-battle-test/run.py`) is the template — extend it to drive the real FastAPI app (not just static mocks) and exercise the question → results → published transitions. Replaces / extends any existing screenshot tests in `tests/`.
-- Manual: `quizz take` against a real PR, walk all three states, publish, verify the comment lands.
+- The existing Playwright test driver (`/tmp/cognit-battle-test/run.py`) is the template — extend it to drive the real FastAPI app (not just static mocks) and exercise the question → results → published transitions. Replaces / extends any existing screenshot tests in `tests/`.
+- Manual: `cognit take` against a real PR, walk all three states, publish, verify the comment lands.
 - Existing engine/server tests should still pass — only UI changes.

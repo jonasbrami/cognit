@@ -1,4 +1,4 @@
-"""Anthropic SDK adapter for quizz.
+"""Anthropic SDK adapter for cognit.
 
 Uses tool use to enforce schema compliance on outputs. The generation pipeline is split
 into two stages:
@@ -23,8 +23,8 @@ from typing import Any, NoReturn, cast
 from anthropic import Anthropic, AuthenticationError
 from anthropic.types import CacheControlEphemeralParam, TextBlockParam, ToolParam, ToolUseBlock
 
-from quizz.engine.llm import GenerateRequest
-from quizz.engine.models import MermaidSet, MermaidSpec, QuizOutline
+from cognit.engine.llm import GenerateRequest
+from cognit.engine.models import MermaidSet, MermaidSpec, QuizOutline
 
 
 # Beta header required when authenticating with a Claude Code OAuth token.
@@ -72,7 +72,7 @@ def _no_anthropic_credentials() -> NoReturn:
 
 
 def _load_prompt(name: str) -> str:
-    return resources.files("quizz.engine.prompts").joinpath(name).read_text()
+    return resources.files("cognit.engine.prompts").joinpath(name).read_text()
 
 
 def _system_block(text: str) -> TextBlockParam:
@@ -80,7 +80,7 @@ def _system_block(text: str) -> TextBlockParam:
 
     Sent as a list-of-blocks (not a string) so cache_control attaches to the static
     instruction text. Cache hits last ~5 minutes, which covers all subagent calls in
-    one `quizz generate` run.
+    one `cognit generate` run.
     """
     return TextBlockParam(
         type="text",

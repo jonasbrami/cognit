@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the editorial UI in `src/quizz/server/assets/` with the github-native design specified in `UI-REDESIGN.md`. Keep all engine/CLI behavior; add one backend field (`comment_url` on `/publish`) needed by the new success banner.
+**Goal:** Replace the editorial UI in `src/cognit/server/assets/` with the github-native design specified in `UI-REDESIGN.md`. Keep all engine/CLI behavior; add one backend field (`comment_url` on `/publish`) needed by the new success banner.
 
 **Architecture:** Three single-page-app states (`questions` → `results` → `published`) rendered by a rewritten `quiz.js` against a new HTML shell and stylesheet. The visual design is already prototyped and battle-tested in `mockups/github.html` · `mockups/results.html` · `mockups/published.html` — implementation lifts CSS/markup from the mocks and wires them to live data.
 
@@ -18,9 +18,9 @@
 ## Task 1: Capture comment URL through `/publish`
 
 **Files:**
-- Modify: `src/quizz/ghio/pr.py:42-46` (`post_comment` returns URL)
-- Modify: `src/quizz/server/app.py:30-77` (callback signature + `/publish` response)
-- Modify: `src/quizz/cli/take.py:65,94` (callback wiring)
+- Modify: `src/cognit/ghio/pr.py:42-46` (`post_comment` returns URL)
+- Modify: `src/cognit/server/app.py:30-77` (callback signature + `/publish` response)
+- Modify: `src/cognit/cli/take.py:65,94` (callback wiring)
 - Modify: `tests/server/test_app.py` (callback signature in test fixtures + new shape assertion)
 
 **Context:** Today `post_comment` shells out to `gh pr comment` which prints nothing useful to stdout. To get the URL of the created comment we switch to `gh api repos/{owner}/{repo}/issues/{n}/comments -f body=...` which returns JSON with an `html_url` field. The `Callable[[str], None]` callback becomes `Callable[[str], str]`.
@@ -72,7 +72,7 @@ Expected: FAIL — `KeyError: 'comment_url'` (response only has `{ok, total_scor
 
 - [ ] **Step 1.3: Change `post_comment` to return URL (and switch to `gh api`)**
 
-Replace `post_comment` in `src/quizz/ghio/pr.py` (around line 42):
+Replace `post_comment` in `src/cognit/ghio/pr.py` (around line 42):
 
 ```python
 def post_comment(pr_url_or_number: str, body: str) -> str:
@@ -95,7 +95,7 @@ def post_comment(pr_url_or_number: str, body: str) -> str:
 
 - [ ] **Step 1.4: Update callback type and `/publish` handler in `app.py`**
 
-In `src/quizz/server/app.py`:
+In `src/cognit/server/app.py`:
 
 ```python
 # line 30 (build_app signature) — tighten the type:
@@ -122,7 +122,7 @@ async def publish(req: Request) -> JSONResponse:
 
 - [ ] **Step 1.5: Update CLI wiring in `take.py`**
 
-In `src/quizz/cli/take.py`:
+In `src/cognit/cli/take.py`:
 
 ```python
 # line 65 — tighten signature:
@@ -147,7 +147,7 @@ Expected: all pass, including the new `test_publish_returns_comment_url`.
 - [ ] **Step 1.7: Commit**
 
 ```bash
-git add src/quizz/ghio/pr.py src/quizz/server/app.py src/quizz/cli/take.py tests/server/test_app.py
+git add src/cognit/ghio/pr.py src/cognit/server/app.py src/cognit/cli/take.py tests/server/test_app.py
 git commit -m "feat(server): /publish returns comment_url; switch to gh api for posting"
 ```
 
@@ -156,10 +156,10 @@ git commit -m "feat(server): /publish returns comment_url; switch to gh api for 
 ## Task 2: Replace `index.html` with github-native shell
 
 **Files:**
-- Modify: `src/quizz/server/assets/index.html` (full replacement, was 60 lines, becomes ~80)
+- Modify: `src/cognit/server/assets/index.html` (full replacement, was 60 lines, becomes ~80)
 - Modify: `tests/server/test_app.py` (extend `test_get_root_renders_quiz` to assert new shell)
 
-**Context:** The new shell mimics a GitHub PR page (topbar / repo header / tab strip / main+sidebar grid / sticky review bar) but is branded "quizz" (decision #4 in spec). The container `<main id="quiz">` and `<section id="result">` from today's HTML go away — replaced by `<main id="questions-root">` (questions state) and result-state DOM rendered inline by JS. Template substitutions stay the same: `__PR__`, `__PR_URL__`, `__QUIZ_JSON__`.
+**Context:** The new shell mimics a GitHub PR page (topbar / repo header / tab strip / main+sidebar grid / sticky review bar) but is branded "cognit" (decision #4 in spec). The container `<main id="quiz">` and `<section id="result">` from today's HTML go away — replaced by `<main id="questions-root">` (questions state) and result-state DOM rendered inline by JS. Template substitutions stay the same: `__PR__`, `__PR_URL__`, `__QUIZ_JSON__`.
 
 - [ ] **Step 2.1: Write failing test for new shell structure**
 
@@ -188,8 +188,8 @@ def test_get_root_renders_quiz() -> None:
     assert 'class="tabs"' in html
     assert 'id="questions-root"' in html
     assert 'id="reviewbar"' in html
-    # the topbar says "quizz" not "GitHub" (decision #4)
-    assert ">quizz<" in html
+    # the topbar says "cognit" not "GitHub" (decision #4)
+    assert ">cognit<" in html
     # PR url linked in the header
     assert "https://github.com/o/r/pull/42" in html
 ```
@@ -204,7 +204,7 @@ Expected: FAIL — none of the new class/id markers are in the old editorial HTM
 
 - [ ] **Step 2.3: Replace `index.html`**
 
-Rewrite `src/quizz/server/assets/index.html` to this exact content:
+Rewrite `src/cognit/server/assets/index.html` to this exact content:
 
 ```html
 <!doctype html>
@@ -212,7 +212,7 @@ Rewrite `src/quizz/server/assets/index.html` to this exact content:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>quizz · PR #__PR__</title>
+  <title>cognit · PR #__PR__</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
@@ -220,10 +220,10 @@ Rewrite `src/quizz/server/assets/index.html` to this exact content:
 </head>
 <body>
 
-  <!-- decorative topbar: borrows GitHub chrome, branded quizz -->
+  <!-- decorative topbar: borrows GitHub chrome, branded cognit -->
   <header class="topbar">
     <span class="topbar__logo" aria-hidden="true"></span>
-    <span class="topbar__brand">quizz</span>
+    <span class="topbar__brand">cognit</span>
     <span class="topbar__spacer"></span>
     <span class="topbar__pr-link"><a href="__PR_URL__">#__PR__ on GitHub ↗</a></span>
   </header>
@@ -278,7 +278,7 @@ Expected: all pass. (Other server tests don't depend on specific HTML content.)
 - [ ] **Step 2.6: Commit**
 
 ```bash
-git add src/quizz/server/assets/index.html tests/server/test_app.py
+git add src/cognit/server/assets/index.html tests/server/test_app.py
 git commit -m "feat(ui): github-native HTML shell (topbar, repohead, tabs, sidebar slot)"
 ```
 
@@ -287,7 +287,7 @@ git commit -m "feat(ui): github-native HTML shell (topbar, repohead, tabs, sideb
 ## Task 3: Replace `styles.css` with github-native styles
 
 **Files:**
-- Modify: `src/quizz/server/assets/styles.css` (full replacement; was 861 lines, target ~700)
+- Modify: `src/cognit/server/assets/styles.css` (full replacement; was 861 lines, target ~700)
 
 **Context:** The new CSS is already battle-tested across `mockups/github.html` + `mockups/results.html` + `mockups/published.html` (Playwright pass at desktop/720/mobile, zero console warnings, fonts load cleanly). The implementation copies that CSS into the production file, organized by the section list in `UI-REDESIGN.md`. The mocks each duplicate the same tokens — we deduplicate during the copy.
 
@@ -338,7 +338,7 @@ Expected: FAIL — old editorial CSS doesn't have those markers.
 
 - [ ] **Step 3.3: Replace `styles.css`**
 
-Copy the CSS rules out of `mockups/github.html`, `mockups/results.html`, `mockups/published.html` (inside their `<style>` blocks) into `src/quizz/server/assets/styles.css`, organized into the following sectioned structure. Each section header is the exact comment string the test checks for.
+Copy the CSS rules out of `mockups/github.html`, `mockups/results.html`, `mockups/published.html` (inside their `<style>` blocks) into `src/cognit/server/assets/styles.css`, organized into the following sectioned structure. Each section header is the exact comment string the test checks for.
 
 ```css
 /* tokens ─────────────────────────────────────────────────────────── */
@@ -473,7 +473,7 @@ curl -sI http://localhost:8765/static/styles.css | head -3
 - [ ] **Step 3.6: Commit**
 
 ```bash
-git add src/quizz/server/assets/styles.css tests/server/test_app.py
+git add src/cognit/server/assets/styles.css tests/server/test_app.py
 git commit -m "feat(ui): github-native stylesheet (Primer tokens, ink score ring, ink-on-white mermaid)"
 ```
 
@@ -503,9 +503,9 @@ import pytest
 import uvicorn
 from fastapi import FastAPI
 
-from quizz.engine.llm_fake import FakeLLM
-from quizz.engine.models import MCQQuestion, MermaidQuestion, OpenQuestion, Quiz, TrueFalseQuestion
-from quizz.server.app import build_app
+from cognit.engine.llm_fake import FakeLLM
+from cognit.engine.models import MCQQuestion, MermaidQuestion, OpenQuestion, Quiz, TrueFalseQuestion
+from cognit.server.app import build_app
 
 
 def _free_port() -> int:
@@ -572,11 +572,11 @@ def live_server(sample_quiz: Quiz) -> Iterator[tuple[str, list[str]]]:
 
     def fake_post(body: str) -> str:
         posted.append(body)
-        return "https://github.com/jonas/quizz/pull/142#issuecomment-9999"
+        return "https://github.com/jonas/cognit/pull/142#issuecomment-9999"
 
     app = build_app(
         quiz=sample_quiz,
-        pr_url="https://github.com/jonas/quizz/pull/142",
+        pr_url="https://github.com/jonas/cognit/pull/142",
         llm=FakeLLM(canned_open_score=80, canned_open_feedback="reasonable"),
         post_comment=fake_post,
     )
@@ -662,7 +662,7 @@ git commit -m "test(server): playwright fixture + live_server scaffolding for UI
 ## Task 5: JS — question state renderer
 
 **Files:**
-- Modify: `src/quizz/server/assets/quiz.js` (rewrite render functions; keep submit/publish wiring shape)
+- Modify: `src/cognit/server/assets/quiz.js` (rewrite render functions; keep submit/publish wiring shape)
 - Modify: `tests/server/test_ui_flow.py` (remove xfail, add per-question structure assertions)
 
 **Context:** The new `quiz.js` keeps the same module shape (reads `window.QUIZ`, defines DOM helpers, wires submit) but replaces `renderQuestion` with a function that builds the github-native `.file` card structure. Mermaid `.initialize()` switches to ink-on-white theme variables matching the new aesthetic. Questions are labeled `Question 1`, `Question 2`, etc. (decision #1 — no fake `.mcq` extensions, no Answered checkbox).
@@ -716,10 +716,10 @@ Expected: FAIL — current `quiz.js` produces the editorial `.question` DOM, not
 
 - [ ] **Step 5.3: Rewrite `quiz.js`**
 
-Replace the contents of `src/quizz/server/assets/quiz.js`. Lift the option/diagram/textarea/tf markup from `mockups/github.html` and produce it with the `el()` DOM helper:
+Replace the contents of `src/cognit/server/assets/quiz.js`. Lift the option/diagram/textarea/tf markup from `mockups/github.html` and produce it with the `el()` DOM helper:
 
 ```javascript
-// quizz front-end — github-native UI.
+// cognit front-end — github-native UI.
 // Contracts:
 //   - reads window.QUIZ (shape in server/engine/models.py: Quiz)
 //   - reads window.PR_URL
@@ -965,7 +965,7 @@ Expected: all pass.
 - [ ] **Step 5.6: Commit**
 
 ```bash
-git add src/quizz/server/assets/quiz.js tests/server/test_ui_flow.py
+git add src/cognit/server/assets/quiz.js tests/server/test_ui_flow.py
 git commit -m "feat(ui): question-state renderer (file cards, ink mermaid theme, sidebar progress)"
 ```
 
@@ -974,7 +974,7 @@ git commit -m "feat(ui): question-state renderer (file cards, ink mermaid theme,
 ## Task 6: JS — results state renderer + `/submit` wiring
 
 **Files:**
-- Modify: `src/quizz/server/assets/quiz.js` (add `renderResults`, real `submitQuiz`)
+- Modify: `src/cognit/server/assets/quiz.js` (add `renderResults`, real `submitQuiz`)
 - Modify: `tests/server/test_ui_flow.py` (add results test)
 
 **Context:** Clicking Submit POSTs `answers` to `/submit`, receives the `Results` payload, swaps `#questions-root` for the results layout: summary card + colored per-question result cards (green/red/orange left border, your-answer highlighted, correct-answer shown if wrong, LLM feedback bubble for open). Sidebar swaps to a Score block + per-question list with status icons. Reviewbar swaps to `Discard` + `Publish to PR`.
@@ -1029,7 +1029,7 @@ Expected: FAIL — `submitQuiz` is a stub.
 
 - [ ] **Step 6.3: Implement results renderer**
 
-Append to `src/quizz/server/assets/quiz.js` (replace the `submitQuiz` stub at the bottom; add the new helpers above the flow section):
+Append to `src/cognit/server/assets/quiz.js` (replace the `submitQuiz` stub at the bottom; add the new helpers above the flow section):
 
 ```javascript
 // ── results-state renderers ─────────────────────────────────────
@@ -1250,7 +1250,7 @@ Expected: 3 passes (initial load, mcq toggle, submit→results).
 - [ ] **Step 6.6: Commit**
 
 ```bash
-git add src/quizz/server/assets/quiz.js tests/server/test_ui_flow.py
+git add src/cognit/server/assets/quiz.js tests/server/test_ui_flow.py
 git commit -m "feat(ui): results-state renderer (summary ring, per-question cards, sidebar swap)"
 ```
 
@@ -1259,7 +1259,7 @@ git commit -m "feat(ui): results-state renderer (summary ring, per-question card
 ## Task 7: JS — published state renderer + `/publish` wiring
 
 **Files:**
-- Modify: `src/quizz/server/assets/quiz.js` (real `publishResults`, add `renderPublished`)
+- Modify: `src/cognit/server/assets/quiz.js` (real `publishResults`, add `renderPublished`)
 - Modify: `tests/server/test_ui_flow.py` (add published test, assert comment_url link)
 
 **Context:** Clicking Publish POSTs `lastResults` to `/publish`, receives `{ok, total_score, comment_url}`. The UI prepends a success banner above the results, swaps the sidebar's Visibility block for a Timeline, and flips the reviewbar to its `is-published` state (green-tinted, with `Open on GitHub` linking to `comment_url`).
@@ -1289,7 +1289,7 @@ def test_publish_renders_success_banner(live_server, page) -> None:
     banner = page.locator("#questions-root .banner")
     assert banner.is_visible()
     link = banner.locator("a")
-    assert link.get_attribute("href") == "https://github.com/jonas/quizz/pull/142#issuecomment-9999"
+    assert link.get_attribute("href") == "https://github.com/jonas/cognit/pull/142#issuecomment-9999"
 
     # reviewbar flipped to published state
     bar = page.locator("#reviewbar")
@@ -1312,7 +1312,7 @@ Expected: FAIL — `publishResults` is a stub.
 
 - [ ] **Step 7.3: Implement published renderer**
 
-Append/replace in `src/quizz/server/assets/quiz.js`:
+Append/replace in `src/cognit/server/assets/quiz.js`:
 
 ```javascript
 // ── published-state renderers ───────────────────────────────────
@@ -1411,8 +1411,8 @@ Expected: all pass (engine tests, server tests including 4 UI flow tests, smoke)
 
 ```bash
 # in a checkout of a real PR branch:
-quizz generate --pr "$(gh pr view --json url --jq .url)" --post
-quizz take
+cognit generate --pr "$(gh pr view --json url --jq .url)" --post
+cognit take
 ```
 
 Walk through: questions answer → submit → see results → click publish → success banner → click "View comment" → confirm it lands on the actual PR comment on GitHub.
@@ -1420,7 +1420,7 @@ Walk through: questions answer → submit → see results → click publish → 
 - [ ] **Step 7.7: Commit**
 
 ```bash
-git add src/quizz/server/assets/quiz.js tests/server/test_ui_flow.py
+git add src/cognit/server/assets/quiz.js tests/server/test_ui_flow.py
 git commit -m "feat(ui): published-state renderer (success banner, timeline, external link to comment)"
 ```
 
@@ -1437,7 +1437,7 @@ git commit -m "feat(ui): published-state renderer (success banner, timeline, ext
 
 ```bash
 rm -rf mockups/
-rm -rf /tmp/quizz-battle-test/  # optional cleanup of the throwaway test dir
+rm -rf /tmp/cognit-battle-test/  # optional cleanup of the throwaway test dir
 ```
 
 - [ ] **Step 8.2: Confirm tests still pass (nothing references mockups/)**
@@ -1452,7 +1452,7 @@ Expected: full suite passes.
 
 ```bash
 git add -A
-git commit -m "chore: remove mockups/ — production assets in src/quizz/server/assets/ are now canonical"
+git commit -m "chore: remove mockups/ — production assets in src/cognit/server/assets/ are now canonical"
 ```
 
 ---
@@ -1466,7 +1466,7 @@ Skimmed `UI-REDESIGN.md` section by section against the plan:
 - **Decision #1 (no files metaphor, "Question N" labels)** → Task 5 (renderQuestion produces `file__title` with "Question 1" string) ✓
 - **Decision #2 (no rich posted-comment in published.html, link only)** → Task 7 (renderBanner produces `View comment ↗` link, no comment body re-render) ✓
 - **Decision #3 (single ink score ring color)** → Task 6 (`--c: var(--fg)`) + Task 3 CSS note ✓
-- **Decision #4 (topbar branded "quizz" not "GitHub")** → Task 2 (`.topbar__brand` with text "quizz", test asserts `>quizz<` and absence of "GitHub" branding) ✓
+- **Decision #4 (topbar branded "cognit" not "GitHub")** → Task 2 (`.topbar__brand` with text "cognit", test asserts `>cognit<` and absence of "GitHub" branding) ✓
 - **Decision #5 (sidebar kept)** → Task 2 shell has `#sidebar-root`, Tasks 5/6/7 populate it ✓
 - **Component inventory CSS sections** → Task 3 structural test checks all section markers ✓
 - **Mermaid restyle (ink-on-white)** → Task 3 (CSS overrides) + Task 5 (mermaid.initialize theme) ✓
@@ -1475,7 +1475,7 @@ Skimmed `UI-REDESIGN.md` section by section against the plan:
 - **Risk: `comment_url` might not be available** → Addressed in Task 1 via `gh api ... --jq .html_url` ✓
 - **Risk: mermaid render timing in results** → Addressed in Task 6 (`mermaid.run` called after `renderResults`) ✓
 - **Risk: fake topbar feels performative** → Decision #4 reduces this; explicit re-eval after use is documented in spec, not in this plan ✓
-- **Testing: extend the Playwright battle-test driver** → Tasks 4/5/6/7 build `tests/server/test_ui_flow.py` as the canonical UI test, replacing the throwaway `/tmp/quizz-battle-test/run.py` ✓
+- **Testing: extend the Playwright battle-test driver** → Tasks 4/5/6/7 build `tests/server/test_ui_flow.py` as the canonical UI test, replacing the throwaway `/tmp/cognit-battle-test/run.py` ✓
 
 Placeholder scan: no TBDs, no "add error handling", no "similar to Task N". Every step has concrete code, an exact command, and an expected outcome.
 

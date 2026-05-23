@@ -2,8 +2,8 @@ import shutil
 
 import pytest
 
-from quizz.engine import mermaid as mermaid_mod
-from quizz.engine.mermaid import MermaidUnavailable, is_valid_mermaid
+from cognit.engine import mermaid as mermaid_mod
+from cognit.engine.mermaid import MermaidUnavailable, is_valid_mermaid
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +31,7 @@ def test_invalid_diagram() -> None:
 
 def _no_external_validators(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pretend mmdc and docker are both missing so the Python check is the only gate."""
-    monkeypatch.setattr("quizz.engine.mermaid._which", lambda cmd: None)
+    monkeypatch.setattr("cognit.engine.mermaid._which", lambda cmd: None)
 
 
 def test_python_side_check_accepts_valid_when_no_validators(
@@ -92,7 +92,7 @@ def test_docker_layer_invoked_when_only_docker_present(monkeypatch: pytest.Monke
     def fake_which(cmd: str) -> str | None:
         return "/usr/bin/docker" if cmd == "docker" else None
 
-    monkeypatch.setattr("quizz.engine.mermaid._which", fake_which)
+    monkeypatch.setattr("cognit.engine.mermaid._which", fake_which)
 
     calls: list[list[str]] = []
 
@@ -123,7 +123,7 @@ def test_docker_layer_propagates_parse_failure(monkeypatch: pytest.MonkeyPatch) 
     def fake_which(cmd: str) -> str | None:
         return "/usr/bin/docker" if cmd == "docker" else None
 
-    monkeypatch.setattr("quizz.engine.mermaid._which", fake_which)
+    monkeypatch.setattr("cognit.engine.mermaid._which", fake_which)
 
     def fake_run(args: list[str], **kwargs: object) -> _FakeCompleted:
         if "image" in args:
@@ -147,7 +147,7 @@ def test_docker_layer_handles_subprocess_timeout(monkeypatch: pytest.MonkeyPatch
     def fake_which(cmd: str) -> str | None:
         return "/usr/bin/docker" if cmd == "docker" else None
 
-    monkeypatch.setattr("quizz.engine.mermaid._which", fake_which)
+    monkeypatch.setattr("cognit.engine.mermaid._which", fake_which)
 
     def fake_run(args: list[str], **kwargs: object) -> _FakeCompleted:
         raise _subprocess.TimeoutExpired(cmd=args, timeout=30)
@@ -165,7 +165,7 @@ def test_docker_image_inspect_is_cached(monkeypatch: pytest.MonkeyPatch) -> None
     def fake_which(cmd: str) -> str | None:
         return "/usr/bin/docker" if cmd == "docker" else None
 
-    monkeypatch.setattr("quizz.engine.mermaid._which", fake_which)
+    monkeypatch.setattr("cognit.engine.mermaid._which", fake_which)
 
     inspect_count = {"n": 0}
 
@@ -194,7 +194,7 @@ def test_docker_layer_builds_image_when_missing(monkeypatch: pytest.MonkeyPatch)
     def fake_which(cmd: str) -> str | None:
         return "/usr/bin/docker" if cmd == "docker" else None
 
-    monkeypatch.setattr("quizz.engine.mermaid._which", fake_which)
+    monkeypatch.setattr("cognit.engine.mermaid._which", fake_which)
 
     seen: list[str] = []
 

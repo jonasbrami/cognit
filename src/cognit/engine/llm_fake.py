@@ -1,7 +1,7 @@
 from collections.abc import Callable
 
-from quizz.engine.llm import GenerateRequest
-from quizz.engine.models import (
+from cognit.engine.llm import GenerateRequest
+from cognit.engine.models import (
     MCQQuestion,
     MermaidSet,
     MermaidSpec,

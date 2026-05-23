@@ -1,14 +1,14 @@
-# quizz
+# cognit
 
 > Voluntary, opt-in PR-author comprehension quizzes. Surface the gap between what you think your code does and what it actually does — before you merge.
 
-![Quiz UI: four questions (MCQ, mermaid-pick, open, true/false) generated from a PR diff, with a sidebar progress tracker.](docs/img/quizz-questions.png)
+![Quiz UI: four questions (MCQ, mermaid-pick, open, true/false) generated from a PR diff, with a sidebar progress tracker.](docs/img/cognit-questions.png)
 
 A local CLI that quizzes the **author** of a pull request (not the reviewer) on the code they're about to merge. One command, runs locally, results stay on your machine unless you explicitly publish them to the PR.
 
 ## TL;DR
 
-- `quizz take` — auto-detects the PR for your current branch, generates a quiz from the diff via Claude, opens it in your browser, grades in-session.
+- `cognit take` — auto-detects the PR for your current branch, generates a quiz from the diff via Claude, opens it in your browser, grades in-session.
 - **Nothing is posted to GitHub** unless you click **Publish results to PR**. The quiz itself is never published; only a results comment, only if you ask.
 - Like CI checks or pre-commit hooks: opt-in. Failing doesn't gate anything — the value is the "aha" when you realize the code does something you didn't expect.
 - Anthropic-only in v1. Uses your Claude Code OAuth session if you have one, or `ANTHROPIC_API_KEY`.
@@ -24,21 +24,21 @@ A local CLI that quizzes the **author** of a pull request (not the reviewer) on 
 | `git` | required | reads files at HEAD for context |
 | A web browser | required | the quiz UI runs at `http://127.0.0.1:<random-port>` |
 | [`claude`](https://docs.claude.com/en/docs/claude-code/overview) CLI (logged in via `claude login`) | optional | enables the OAuth auth path so you don't need an API key |
-| [`@mermaid-js/mermaid-cli`](https://github.com/mermaid-js/mermaid-cli) (`mmdc`) | optional | fastest path for server-side mermaid validation. If absent, `quizz` falls back to a lazily-built Docker parse-only image, then to a Python regex backstop — see [Mermaid validation](#mermaid-validation). |
+| [`@mermaid-js/mermaid-cli`](https://github.com/mermaid-js/mermaid-cli) (`mmdc`) | optional | fastest path for server-side mermaid validation. If absent, `cognit` falls back to a lazily-built Docker parse-only image, then to a Python regex backstop — see [Mermaid validation](#mermaid-validation). |
 
 ### Install
 
 ```bash
 # pick one:
-uv tool install git+https://github.com/jonasbrami/quizz.git
-pipx install git+https://github.com/jonasbrami/quizz.git
+uv tool install git+https://github.com/jonasbrami/cognit.git
+pipx install git+https://github.com/jonasbrami/cognit.git
 ```
 
 > Not on PyPI yet. Install from the GitHub source above until v0.1.0 is published.
 
 ### Authenticate
 
-Either path works — `quizz` auto-detects:
+Either path works — `cognit` auto-detects:
 
 - **Claude Code OAuth (recommended, zero config).** If you've run `claude login`, the adapter reads `~/.claude/.credentials.json` automatically. Billed to your Claude Code subscription.
 - **API key.** `export ANTHROPIC_API_KEY=sk-ant-...`
@@ -47,30 +47,30 @@ Either path works — `quizz` auto-detects:
 
 ```bash
 # from a checkout of your PR branch:
-quizz take
+cognit take
 ```
 
 That's it. The CLI:
 
 1. Detects the PR for the current branch via `gh`.
-2. Generates a quiz from the diff (or loads it from the local cache at `$TMPDIR/quizz/` if you've already generated one for this PR).
+2. Generates a quiz from the diff (or loads it from the local cache at `$TMPDIR/cognit/` if you've already generated one for this PR).
 3. Opens your browser to the quiz.
 4. Grades everything in-session when you hit Submit — MCQ / mermaid / true-false deterministically; open questions are LLM-graded against a rubric the generator wrote.
 5. Shows you results. Click **Publish results to PR** if you want a record on GitHub; otherwise nothing leaves your laptop.
 
-![Results view: per-question scores, total, and the Discard / Publish-to-PR controls.](docs/img/quizz-results.png)
+![Results view: per-question scores, total, and the Discard / Publish-to-PR controls.](docs/img/cognit-results.png)
 
 ## How it works
 
 ```mermaid
 sequenceDiagram
   actor User
-  participant CLI as quizz take
+  participant CLI as cognit take
   participant gh as gh CLI
   participant LLM as Anthropic
   participant Web as Local browser
 
-  User->>CLI: quizz take
+  User->>CLI: cognit take
   CLI->>gh: pr view / pr diff
   gh-->>CLI: title, body, diff, files
   CLI->>LLM: outline call
@@ -98,7 +98,7 @@ The LLM picks question count and type mix based on diff complexity — typically
 ## Configuration
 
 ```bash
-quizz take [--pr URL] [--model NAME] [--min-diff-lines N] [--max-diff-lines N] [--show-results]
+cognit take [--pr URL] [--model NAME] [--min-diff-lines N] [--max-diff-lines N] [--show-results]
 ```
 
 | Flag | Default | Description |
@@ -113,16 +113,16 @@ quizz take [--pr URL] [--model NAME] [--min-diff-lines N] [--max-diff-lines N] [
 
 ## Mermaid validation
 
-The generator produces mermaid-pick questions (four diagrams, one correct). Before a quiz is served, every diagram is validated server-side so a malformed diagram never reaches the browser. `quizz` tries three layers, in order of preference:
+The generator produces mermaid-pick questions (four diagrams, one correct). Before a quiz is served, every diagram is validated server-side so a malformed diagram never reaches the browser. `cognit` tries three layers, in order of preference:
 
 1. **`mmdc`** (`npm install -g @mermaid-js/mermaid-cli`) — fastest, no per-call overhead.
-2. **Docker** — if `mmdc` is absent but `docker` is available, `quizz` lazily builds a small parse-only validator image on first use (no Chromium; just `mermaid` + `jsdom`).
+2. **Docker** — if `mmdc` is absent but `docker` is available, `cognit` lazily builds a small parse-only validator image on first use (no Chromium; just `mermaid` + `jsdom`).
 3. **Python regex backstop** — if neither is present, a lightweight check still runs, catching the most common LLM failure modes (missing diagram header, grossly unbalanced brackets, `[/text]` parallelogram traps).
 
-To trace which layer is chosen (and other internal decisions), set `QUIZZ_LOG_LEVEL=DEBUG`:
+To trace which layer is chosen (and other internal decisions), set `COGNIT_LOG_LEVEL=DEBUG`:
 
 ```bash
-QUIZZ_LOG_LEVEL=DEBUG quizz take
+COGNIT_LOG_LEVEL=DEBUG cognit take
 ```
 
 ## Troubleshooting
@@ -130,13 +130,13 @@ QUIZZ_LOG_LEVEL=DEBUG quizz take
 | Symptom | Fix |
 |---|---|
 | `error: no PR detected from current branch` | Push the branch and open a PR, or pass `--pr <url>`. |
-| `diff is N lines (< 50) — skipping` | Lower the floor: `quizz take --min-diff-lines 0`. |
-| `diff is N lines (> 2000) — skipping` | Raise the ceiling: `quizz take --max-diff-lines 5000`. Long diffs cost more and the LLM may struggle to pick good questions. |
+| `diff is N lines (< 50) — skipping` | Lower the floor: `cognit take --min-diff-lines 0`. |
+| `diff is N lines (> 2000) — skipping` | Raise the ceiling: `cognit take --max-diff-lines 5000`. Long diffs cost more and the LLM may struggle to pick good questions. |
 | `Your Claude Code OAuth session is expired` | `claude login` to refresh, or `export ANTHROPIC_API_KEY=...` to switch to an API key. |
 | `Anthropic provider needs credentials` | Either `export ANTHROPIC_API_KEY=sk-ant-...` or `claude login`. |
 | `gh` errors out | `gh auth status` to check, `gh auth login` to (re-)authenticate. |
 | Browser doesn't open / port collision | The CLI picks a random free port and `webbrowser.open`s it. If your environment is headless, copy the `http://127.0.0.1:<port>` URL from the CLI output. |
-| Want to regenerate after a cached quiz | The cache lives at `$TMPDIR/quizz/<digest>.json` — delete that file and run `quizz take` again. |
+| Want to regenerate after a cached quiz | The cache lives at `$TMPDIR/cognit/<digest>.json` — delete that file and run `cognit take` again. |
 
 ## Why this exists
 
@@ -150,7 +150,7 @@ Anyone shipping with AI has been there: you "review" a diff in ten minutes, nod 
 
 We've all felt this outside software too. You think you understand a topic — until the exam asks you something specific, and the gap shows up the moment you reach for the answer. **You only really learn it by being tested on it.**
 
-That's what `quizz` does, for code you're about to merge. The quiz is the diagnostic; the explanation of the right answer is the medicine. Human attention is precious — the north star is to use LLMs to *illuminate areas of non-comprehension* so the time you spend reading your own PR lands on what actually needs a human mind.
+That's what `cognit` does, for code you're about to merge. The quiz is the diagnostic; the explanation of the right answer is the medicine. Human attention is precious — the north star is to use LLMs to *illuminate areas of non-comprehension* so the time you spend reading your own PR lands on what actually needs a human mind.
 
 **It's the inverse of the usual LLM coding flow.**
 
@@ -167,7 +167,7 @@ Call this **comprehension-driven development (CDD)**: a change isn't done until 
 
 **v1.0 ships:**
 
-- A single CLI command: `quizz take`. Generates the quiz on first run, opens the browser, grades in-session, opt-in publish.
+- A single CLI command: `cognit take`. Generates the quiz on first run, opens the browser, grades in-session, opt-in publish.
 - 4 question types (MCQ, mermaid-pick with auto-neutralized A/B/C/D labels, open, true/false).
 - Anthropic adapter via tool use (guaranteed-schema output) with Claude Code OAuth fallback.
 - Local FastAPI server with embedded HTML/JS/CSS + a vendored `mermaid.js` UMD bundle (no CDN at runtime).

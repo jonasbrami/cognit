@@ -5,9 +5,9 @@ import httpx
 import pytest
 import respx
 
-from quizz.engine.llm import GenerateRequest
-from quizz.engine.llm_anthropic import AnthropicLLM
-from quizz.engine.models import MCQQuestion, MermaidSet, MermaidSpec, QuizOutline
+from cognit.engine.llm import GenerateRequest
+from cognit.engine.llm_anthropic import AnthropicLLM
+from cognit.engine.models import MCQQuestion, MermaidSet, MermaidSpec, QuizOutline
 
 _TOOL_OUTLINE = "submit_quiz_outline"
 _TOOL_MERMAID = "submit_mermaid_set"
@@ -136,7 +136,7 @@ def test_grade_open_via_tool_use(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_missing_credentials_raises_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setattr("quizz.engine.llm_anthropic._load_claude_code_oauth", lambda: None)
+    monkeypatch.setattr("cognit.engine.llm_anthropic._load_claude_code_oauth", lambda: None)
     with pytest.raises(RuntimeError, match="ANTHROPIC_API_KEY"):
         AnthropicLLM()
 
@@ -144,7 +144,7 @@ def test_missing_credentials_raises_runtime_error(monkeypatch: pytest.MonkeyPatc
 def test_falls_back_to_claude_code_oauth(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setattr(
-        "quizz.engine.llm_anthropic._load_claude_code_oauth", lambda: "fake-oauth-token"
+        "cognit.engine.llm_anthropic._load_claude_code_oauth", lambda: "fake-oauth-token"
     )
     llm = AnthropicLLM()
     assert llm._client.auth_token == "fake-oauth-token"
@@ -165,7 +165,7 @@ def test_expired_oauth_token_raises_with_specific_message(
         + str(int(time.time() * 1000) - 86_400_000)
         + "}}"
     )
-    monkeypatch.setattr("quizz.engine.llm_anthropic._CLAUDE_CREDS_PATH", fake_creds)
+    monkeypatch.setattr("cognit.engine.llm_anthropic._CLAUDE_CREDS_PATH", fake_creds)
     with pytest.raises(RuntimeError, match="expired"):
         AnthropicLLM()
 
@@ -204,14 +204,14 @@ def test_outline_request_pins_tool_schema_and_tool_choice(
 
 @respx.mock
 def test_oauth_token_rotation_recovers_via_retry(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Claude Code rotates OAuth tokens in `~/.claude/.credentials.json` while quizz holds
+    """Claude Code rotates OAuth tokens in `~/.claude/.credentials.json` while cognit holds
     an in-memory client built from the older token. On a 401, the client should re-read
-    credentials, rebuild, and retry once — so a long-running `quizz take` session doesn't
+    credentials, rebuild, and retry once — so a long-running `cognit take` session doesn't
     fail to grade just because the user's local credentials refreshed in the meantime."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     tokens = iter(["old-token", "new-token"])
     monkeypatch.setattr(
-        "quizz.engine.llm_anthropic._load_claude_code_oauth",
+        "cognit.engine.llm_anthropic._load_claude_code_oauth",
         lambda: next(tokens),
     )
     responses = iter(

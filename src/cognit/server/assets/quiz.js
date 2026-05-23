@@ -1,4 +1,4 @@
-// quizz front-end — github-native UI.
+// cognit front-end — github-native UI.
 // Contracts:
 //   - reads window.QUIZ (shape in server/engine/models.py: Quiz)
 //   - reads window.PR_URL

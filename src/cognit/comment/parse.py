@@ -1,5 +1,5 @@
 import re
-from quizz.engine.models import Quiz, Answers, Results, QuestionResult
+from cognit.engine.models import Quiz, Answers, Results, QuestionResult
 
 _JSON_BLOCK = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
 
@@ -15,16 +15,16 @@ def _extract_json(md: str, marker: str) -> str:
 
 
 def parse_quiz(md: str) -> Quiz:
-    return Quiz.model_validate_json(_extract_json(md, "<!-- quizz:quiz v1 -->"))
+    return Quiz.model_validate_json(_extract_json(md, "<!-- cognit:quiz v1 -->"))
 
 
 def parse_answers(md: str) -> Answers:
-    return Answers.model_validate_json(_extract_json(md, "<!-- quizz:answers v1 -->"))
+    return Answers.model_validate_json(_extract_json(md, "<!-- cognit:answers v1 -->"))
 
 
 def parse_results(md: str) -> Results:
     """Parse a results comment. Prefers the embedded JSON state; falls back to scraping the human text."""
-    marker = "<!-- quizz:results v1 -->"
+    marker = "<!-- cognit:results v1 -->"
     if marker not in md:
         raise ValueError("not a results comment")
     # Prefer JSON state if present (added in v1; older comments may lack it).

@@ -1,13 +1,13 @@
 import typer
-from quizz.cli.version import __version__
-from quizz.cli import take as _take
+from cognit.cli.version import __version__
+from cognit.cli import take as _take
 
 app = typer.Typer(no_args_is_help=True, help="PR-author comprehension quiz tool")
 
 
 def _version_callback(value: bool) -> None:
     if value:
-        typer.echo(f"quizz {__version__}")
+        typer.echo(f"cognit {__version__}")
         raise typer.Exit()
 
 

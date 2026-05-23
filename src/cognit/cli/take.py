@@ -1,4 +1,4 @@
-"""`quizz take` — the only command.
+"""`cognit take` — the only command.
 
 Generates the quiz in memory (cached locally for resume), opens the browser quiz,
 grades in-session, opt-in publishes the results comment to the PR. The quiz itself
@@ -23,19 +23,19 @@ import uvicorn
 from anthropic import APIError as AnthropicAPIError
 from pydantic import ValidationError
 
-from quizz.comment.parse import parse_results
-from quizz.engine.generate import generate_quiz
-from quizz.engine.llm import LLMClient
-from quizz.engine.llm_anthropic import AnthropicLLM
-from quizz.engine.llm_claude_agent import ClaudeAgentLLM
-from quizz.engine.models import Quiz
-from quizz.ghio.diff import fetch_diff_and_files, read_file_at_head
-from quizz.ghio.pr import fetch_pr_info, find_latest_marker_comment, post_comment
-from quizz.server.app import build_app
+from cognit.comment.parse import parse_results
+from cognit.engine.generate import generate_quiz
+from cognit.engine.llm import LLMClient
+from cognit.engine.llm_anthropic import AnthropicLLM
+from cognit.engine.llm_claude_agent import ClaudeAgentLLM
+from cognit.engine.models import Quiz
+from cognit.ghio.diff import fetch_diff_and_files, read_file_at_head
+from cognit.ghio.pr import fetch_pr_info, find_latest_marker_comment, post_comment
+from cognit.server.app import build_app
 
-logger = logging.getLogger("quizz.cli.take")
+logger = logging.getLogger("cognit.cli.take")
 
-_MARKER_RESULTS = "<!-- quizz:results v1 -->"
+_MARKER_RESULTS = "<!-- cognit:results v1 -->"
 
 
 def _make_llm(model: str) -> LLMClient:
@@ -76,10 +76,10 @@ def _free_port() -> int:
 def _cache_path_for(pr_url: str) -> Path:
     """Local cache path for a generated quiz, keyed by PR URL digest.
 
-    Lives under `$TMPDIR/quizz/`. OS reboot clears it. No explicit lifecycle.
+    Lives under `$TMPDIR/cognit/`. OS reboot clears it. No explicit lifecycle.
     """
     digest = hashlib.sha1(pr_url.encode("utf-8")).hexdigest()[:16]
-    cache_dir = Path(tempfile.gettempdir()) / "quizz"
+    cache_dir = Path(tempfile.gettempdir()) / "cognit"
     cache_dir.mkdir(parents=True, exist_ok=True)
     return cache_dir / f"{digest}.json"
 
@@ -204,17 +204,17 @@ def _run_take_flow(
 
 
 def _configure_logging() -> None:
-    """Wire up `QUIZZ_LOG_LEVEL` so debug traces from the engine layers are visible.
+    """Wire up `COGNIT_LOG_LEVEL` so debug traces from the engine layers are visible.
 
-    Default is WARNING (quiet). Set `QUIZZ_LOG_LEVEL=DEBUG` to see which mermaid
+    Default is WARNING (quiet). Set `COGNIT_LOG_LEVEL=DEBUG` to see which mermaid
     validator is being used, cache hits, and other internal decisions:
 
-        QUIZZ_LOG_LEVEL=DEBUG quizz take
+        COGNIT_LOG_LEVEL=DEBUG cognit take
 
     `force=True` so a parent harness (uvicorn, pytest) that already configured
     root logging doesn't make our env var silently a no-op.
     """
-    level_name = os.environ.get("QUIZZ_LOG_LEVEL", "WARNING").upper()
+    level_name = os.environ.get("COGNIT_LOG_LEVEL", "WARNING").upper()
     level = getattr(logging, level_name, logging.WARNING)
     logging.basicConfig(
         level=level,

@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import pytest
 
-from quizz.cli.take import _make_llm
-from quizz.engine.llm_anthropic import AnthropicLLM
-from quizz.engine.llm_claude_agent import ClaudeAgentLLM
+from cognit.cli.take import _make_llm
+from cognit.engine.llm_anthropic import AnthropicLLM
+from cognit.engine.llm_claude_agent import ClaudeAgentLLM
 
 
 def test_make_llm_uses_anthropic_when_api_key_set(

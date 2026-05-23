@@ -22,7 +22,7 @@ from pathlib import Path
 
 import typer
 
-logger = logging.getLogger("quizz.engine.mermaid")
+logger = logging.getLogger("cognit.engine.mermaid")
 
 
 class MermaidUnavailable(RuntimeError):
@@ -55,7 +55,7 @@ _BRACKET_IMBALANCE_TOLERANCE = 4
 
 # Docker image we build on first use. Lives inside the package so it ships in the
 # wheel; the user doesn't have to clone the repo to use the dockerised path.
-_DOCKER_IMAGE_TAG = "quizz-mermaid-validator:local"
+_DOCKER_IMAGE_TAG = "cognit-mermaid-validator:local"
 _DOCKER_BUILD_TIMEOUT_S = 300
 _DOCKER_RUN_TIMEOUT_S = 30
 

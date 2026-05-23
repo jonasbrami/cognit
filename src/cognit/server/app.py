@@ -1,4 +1,4 @@
-"""Local FastAPI app for `quizz take`."""
+"""Local FastAPI app for `cognit take`."""
 
 import asyncio
 import html as _html
@@ -10,10 +10,10 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from quizz.comment.render import render_results_inlined
-from quizz.engine.grade import grade
-from quizz.engine.llm import LLMClient
-from quizz.engine.models import Answers, Quiz, Results
+from cognit.comment.render import render_results_inlined
+from cognit.engine.grade import grade
+from cognit.engine.llm import LLMClient
+from cognit.engine.models import Answers, Quiz, Results
 
 # Assets directory: use __file__-relative path so StaticFiles gets a real directory.
 # importlib.resources returns a MultiplexedPath in editable installs that os.path.isdir rejects.
@@ -32,7 +32,7 @@ def build_app(
     llm: LLMClient,
     post_comment: Callable[[str], str],  # returns the comment's html_url
 ) -> FastAPI:
-    """Build the FastAPI app for `quizz take`.
+    """Build the FastAPI app for `cognit take`.
 
     Endpoints:
       GET /          — quiz HTML page
