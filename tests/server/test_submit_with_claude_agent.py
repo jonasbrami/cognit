@@ -80,3 +80,50 @@ def test_submit_with_claude_agent_llm_does_not_loop_in_loop(
     by_id = {q["question_id"]: q for q in data["per_question"]}
     assert by_id["q2"]["score"] == 80
     assert by_id["q2"]["feedback"] == "ok"
+
+
+def test_submit_streams_grading_activity_to_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Grading the open question must stream activity into the broker so the
+    browser's grading overlay (polling /progress) shows it."""
+    canned = {"score": 90, "feedback": "good"}
+
+    def fake_drain(self: ClaudeAgentLLM, *, prompt: str, options: Any, handler: Any) -> None:
+        # Simulate Claude narrating while grading, then submitting the score.
+        if self.on_event is not None:
+            self.on_event(
+                {"kind": "text", "text": "weighing the answer…", "tool": self._current_tool}
+            )
+        asyncio.run(handler(canned))
+
+    monkeypatch.setattr(ClaudeAgentLLM, "_drain_agent", fake_drain)
+
+    quiz = Quiz(
+        pr_number=42,
+        questions=[OpenQuestion(id="q1", prompt="explain", rubric="mention X")],
+    )
+    app = build_app(
+        quiz=quiz,
+        pr_url="https://github.com/o/r/pull/42",
+        llm=ClaudeAgentLLM(),
+        post_comment=lambda md: "https://x/y#unused",
+    )
+    client = TestClient(app)
+    r = client.post(
+        "/submit",
+        json={
+            "version": "1",
+            "pr_number": 42,
+            "entries": [{"question_id": "q1", "value": "X matters"}],
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    events = client.get("/progress?cursor=0").json()["events"]
+    # The grade tool announces a step, then Claude's text streams — both tagged submit_grade.
+    assert {"kind": "step", "tool": "submit_grade"} in events
+    assert any(
+        e["kind"] == "text" and e["tool"] == "submit_grade" and "weighing" in e["text"]
+        for e in events
+    )
