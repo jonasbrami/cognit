@@ -6,10 +6,11 @@ from cognit.engine.models import MermaidSet, MermaidSpec, QuizOutline
 
 
 class GenerateRequest(BaseModel):
-    diff: str
     pr_title: str
     pr_body: str
-    files: dict[str, str]  # path -> full content
+    pr_number: int
+    pr_url: str  # used by the outline agent's `pr_diff` tool to fetch the diff itself
+    branch: str  # PR head branch (already checked out); passed to the agent as context
     model: str = "claude-sonnet-4-6"
 
 

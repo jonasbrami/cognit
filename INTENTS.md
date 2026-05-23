@@ -65,7 +65,7 @@ The PR thread carries **at most one comment** per take session, and only if the 
 
 ### `cognit take` CLI
 
-- Auth: uses local `gh auth login` for PR I/O. LLM auth via Claude Code OAuth (`~/.claude/.credentials.json`) or `ANTHROPIC_API_KEY`. Anthropic is the only supported provider in v1.
+- Auth: uses local `gh auth login` for PR I/O. LLM auth via Claude Code OAuth (`~/.claude/.credentials.json`) — `claude login` required. Anthropic is the only supported provider in v1.
 - Invocation: `cognit take [--pr <url-or-number>] [--model <name>] [--min-diff-lines N] [--max-diff-lines N]`. Auto-detects PR from current branch.
 - Steps:
   1. Detect the PR for the current branch via `gh pr view --json url`. (Skipped when `--pr` is passed.)
@@ -168,7 +168,7 @@ Single workflow input file with sensible defaults. Tunable knobs:
 
 | Knob | Default |
 |---|---|
-| LLM provider | Anthropic only (Claude SDK). API key (`ANTHROPIC_API_KEY`) or Claude Code OAuth (`~/.claude/.credentials.json`) — auto-detected. |
+| LLM provider | Anthropic only (Claude SDK). Claude Code OAuth (`~/.claude/.credentials.json`) via `claude login` — the only supported auth path. |
 | `--model` | `claude-sonnet-4-6` |
 | `--min-diff-lines` | 50 (skip tiny PRs) |
 | `--max-diff-lines` | 2000 (skip huge PRs) |
@@ -186,7 +186,7 @@ PR-level escape hatches: `quiz: skip` in PR description suppresses generation en
 | Diff smaller than `--min-diff-lines` | `take` prints `"diff is N lines (< min) — skipping."` and exits zero. No PR comment. |
 | Diff larger than `--max-diff-lines` | `take` prints `"diff is N lines (> max) — skipping."` and exits zero. No PR comment. |
 | `quiz: skip` in PR body | `take` prints `"quiz: skip in PR body — skipping."` and exits zero. No PR comment. |
-| LLM call fails (network, rate limit, validation) | CLI catches `AnthropicAPIError`/`ValidationError` and exits 1 with a friendly message. |
+| LLM call fails (network, rate limit, validation) | CLI catches SDK errors and `ValidationError`, exits 1 with a friendly message. |
 | `--show-results` with no results comment | Print `"no results comment found on this PR."` and exit 1. |
 
 ## Testing strategy

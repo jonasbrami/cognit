@@ -83,8 +83,7 @@ def build_app(
         # `grade()` is sync and (for ClaudeAgentLLM) internally calls
         # `asyncio.run(...)` — which Python forbids from inside a running event
         # loop. Offload to a worker thread so the adapter can drive its own loop
-        # without colliding with uvicorn's. As a bonus this also keeps
-        # AnthropicLLM's blocking HTTP off the event-loop thread.
+        # without colliding with uvicorn's.
         results = await asyncio.to_thread(grade, quiz, answers, llm=llm)
         return JSONResponse(results.model_dump())
 

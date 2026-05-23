@@ -1,4 +1,4 @@
-Generate a comprehension quiz for the PR author based on the following inputs. Decide the count and type-mix yourself; submit via the `submit_quiz_outline` tool.
+Generate a comprehension quiz for the PR author. You are inspecting **PR #{pr_number}** on branch `{branch}`.
 
 <pr_title>{pr_title}</pr_title>
 
@@ -6,10 +6,9 @@ Generate a comprehension quiz for the PR author based on the following inputs. D
 {pr_body}
 </pr_body>
 
-<diff>
-{diff}
-</diff>
+Inspect the change yourself, then submit the quiz:
 
-<files>
-{files}
-</files>
+1. Call the `pr_diff` tool to fetch the PR's unified diff. (Vendored/minified/lock/binary files are already stripped from it.)
+2. Use `Read`, `Grep`, and `Glob` on the working tree (already checked out on this branch) to pull only the context you need — the definition a changed function calls, the surrounding code, a referenced type. Read targeted line ranges, not whole files. **Never read large, minified, generated, or vendored files in full** — they waste your context and aren't worth quizzing on.
+3. Decide the question count and type-mix yourself.
+4. Submit your outline via the `submit_quiz_outline` tool.

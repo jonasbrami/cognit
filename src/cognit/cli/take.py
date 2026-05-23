@@ -20,16 +20,14 @@ from pathlib import Path
 
 import typer
 import uvicorn
-from anthropic import APIError as AnthropicAPIError
 from pydantic import ValidationError
 
 from cognit.comment.parse import parse_results
 from cognit.engine.generate import generate_quiz
 from cognit.engine.llm import LLMClient
-from cognit.engine.llm_anthropic import AnthropicLLM
 from cognit.engine.llm_claude_agent import ClaudeAgentLLM
 from cognit.engine.models import Quiz
-from cognit.ghio.diff import fetch_diff_and_files, read_file_at_head
+from cognit.ghio.diff import fetch_pr_diff
 from cognit.ghio.pr import fetch_pr_info, find_latest_marker_comment, post_comment
 from cognit.server.app import build_app
 
@@ -39,15 +37,8 @@ _MARKER_RESULTS = "<!-- cognit:results v1 -->"
 
 
 def _make_llm(model: str) -> LLMClient:
-    """Pick the adapter based on the only auth signal that matters.
-
-    `ANTHROPIC_API_KEY` set → direct Anthropic SDK (fastest, no subprocess).
-    Otherwise → `claude_agent_sdk` (subprocesses the `claude` binary, which is
-    the only path that unlocks sonnet/opus for OAuth-only users; see
-    docs/superpowers/specs/2026-05-22-claude-agent-sdk-engine-design.md).
-    """
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return AnthropicLLM(model=model)
+    """The `claude` binary (subprocessed by claude_agent_sdk) is the only inference
+    path: it's what unlocks sonnet/opus for Claude Code OAuth users. Run `claude login`."""
     return ClaudeAgentLLM(model=model)
 
 
@@ -115,8 +106,11 @@ def _generate_in_memory(
     if "quiz: skip" in info.body.lower():
         typer.echo("quiz: skip in PR body — skipping.")
         return None
-    diff, files = fetch_diff_and_files(pr_url, fetch_file_contents=read_file_at_head)
-    diff_lines = diff.count("\n")
+    # Cheap size gate only — the diff is discarded here. The outline agent re-fetches it
+    # via its `pr_diff` tool; we keep this so a too-small/too-large PR is skipped before
+    # paying for an LLM call. `fetch_pr_diff` already strips vendored/minified/lock files,
+    # so the line count reflects the real change.
+    diff_lines = fetch_pr_diff(pr_url).count("\n")
     if diff_lines < min_diff_lines:
         typer.echo(f"diff is {diff_lines} lines (< {min_diff_lines}) — skipping.")
         return None
@@ -125,17 +119,14 @@ def _generate_in_memory(
         return None
     try:
         return generate_quiz(
-            diff=diff,
             pr_title=info.title,
             pr_body=info.body,
-            files=files,
             pr_number=info.number,
+            pr_url=pr_url,
+            branch=info.branch,
             llm=llm,
             model=model,
         )
-    except AnthropicAPIError as e:
-        typer.echo(f"LLM call failed: {type(e).__name__}: {e}", err=True)
-        raise typer.Exit(code=1) from None
     except ValidationError as e:
         typer.echo(f"LLM returned malformed quiz: {e}", err=True)
         raise typer.Exit(code=1) from None

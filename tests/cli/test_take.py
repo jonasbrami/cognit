@@ -2,10 +2,8 @@ import hashlib
 import tempfile
 from pathlib import Path
 
-import httpx
 import pytest
 import typer
-from anthropic import APIError as AnthropicAPIError
 from typer.testing import CliRunner
 
 from cognit.cli import app
@@ -81,8 +79,8 @@ def test_take_generates_and_does_not_post_to_pr(monkeypatch: pytest.MonkeyPatch)
         lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "cognit.cli.take.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("diffstr\n" * 100, {}),
+        "cognit.cli.take.fetch_pr_diff",
+        lambda pr: "diffstr\n" * 100,
     )
     posted: list[str] = []
     monkeypatch.setattr(
@@ -118,8 +116,8 @@ def test_take_reuses_cache_on_second_run(monkeypatch: pytest.MonkeyPatch) -> Non
         lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "cognit.cli.take.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("diffstr\n" * 100, {}),
+        "cognit.cli.take.fetch_pr_diff",
+        lambda pr: "diffstr\n" * 100,
     )
     monkeypatch.setattr("cognit.cli.take.post_comment", lambda pr, md: "https://x/y#1")
     monkeypatch.setattr("cognit.cli.take._serve_blocking", lambda *a, **k: None)
@@ -132,7 +130,7 @@ def test_take_reuses_cache_on_second_run(monkeypatch: pytest.MonkeyPatch) -> Non
         raise AssertionError("should not be called on cache hit")
 
     monkeypatch.setattr("cognit.cli.take.fetch_pr_info", boom)
-    monkeypatch.setattr("cognit.cli.take.fetch_diff_and_files", boom)
+    monkeypatch.setattr("cognit.cli.take.fetch_pr_diff", boom)
 
     _run_take_flow(pr_url, show_results_only=False, llm=_fake_llm_with_outline())
 
@@ -155,8 +153,8 @@ def test_take_skips_small_diff(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "cognit.cli.take.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("only one line\n", {}),
+        "cognit.cli.take.fetch_pr_diff",
+        lambda pr: "only one line\n",
     )
 
     def fail_serve(*args, **kwargs):  # type: ignore[no-untyped-def]
@@ -179,8 +177,8 @@ def test_take_respects_quiz_skip_in_body(monkeypatch: pytest.MonkeyPatch) -> Non
         lambda pr: PRInfo(1, "t", "quiz: skip\n\nThis PR ...", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "cognit.cli.take.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
+        "cognit.cli.take.fetch_pr_diff",
+        lambda pr: "a\n" * 100,
     )
 
     def fail_serve(*args, **kwargs):  # type: ignore[no-untyped-def]
@@ -193,17 +191,15 @@ def test_take_respects_quiz_skip_in_body(monkeypatch: pytest.MonkeyPatch) -> Non
     )
 
 
-def test_take_handles_llm_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """LLM failure during auto-generation should exit 1 with a friendly message."""
+def test_take_handles_malformed_quiz(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A malformed outline (pydantic ValidationError) during auto-generation exits 1."""
     from cognit.cli.take import _run_take_flow
 
     class BoomLLM:
         def generate_quiz_outline(self, req):  # type: ignore[no-untyped-def]
-            raise AnthropicAPIError(
-                message="simulated network failure",
-                request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
-                body=None,
-            )
+            # Simulate the agent submitting an outline that fails schema validation.
+            QuizOutline.model_validate({"questions": [{"type": "mcq", "id": "q"}]})
+            raise AssertionError("unreachable")
 
         def generate_mermaid_set(self, spec, req):  # type: ignore[no-untyped-def]
             raise AssertionError("should not be reached")
@@ -216,8 +212,8 @@ def test_take_handles_llm_failure(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "cognit.cli.take.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
+        "cognit.cli.take.fetch_pr_diff",
+        lambda pr: "a\n" * 100,
     )
 
     with pytest.raises(typer.Exit) as exc_info:
@@ -249,8 +245,8 @@ def test_take_handles_runtime_error_from_agent(monkeypatch: pytest.MonkeyPatch) 
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "cognit.cli.take.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
+        "cognit.cli.take.fetch_pr_diff",
+        lambda pr: "a\n" * 100,
     )
 
     with pytest.raises(typer.Exit) as exc_info:
