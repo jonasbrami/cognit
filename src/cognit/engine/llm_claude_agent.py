@@ -19,11 +19,14 @@ from importlib import resources
 from typing import Any
 
 from claude_agent_sdk import (
+    AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKError,
     CLIConnectionError,
     CLINotFoundError,
     ProcessError,
+    TextBlock,
+    ToolUseBlock,
     create_sdk_mcp_server,
     query,
     tool,
@@ -56,6 +59,12 @@ def _format_misconceptions(misconceptions: list[str]) -> str:
 class ClaudeAgentLLM:
     def __init__(self, model: str = "claude-sonnet-4-6") -> None:
         self._model = model
+        # Optional activity sink. When set (by `cognit take` during streamed
+        # generation/grading), `_drain_agent` forwards Claude's text and tool
+        # calls here instead of discarding them. Kept off the LLMClient Protocol
+        # so it stays a no-op adapter feature; AnthropicLLM never reads it.
+        self.on_event: Callable[[dict[str, Any]], None] | None = None
+        self._current_tool: str = ""
 
     def _invoke_tool(
         self,
@@ -72,6 +81,12 @@ class ClaudeAgentLLM:
         Caller decides what to do (retry, raise, etc.).
         """
         captured: list[dict[str, Any]] = []
+
+        # Tag every activity event from this invocation with its tool, and
+        # announce the phase start so the feed reads "generating outline" etc.
+        self._current_tool = tool_name
+        if self.on_event is not None:
+            self.on_event({"kind": "step", "tool": tool_name})
 
         async def handler(args: dict[str, Any]) -> dict[str, Any]:
             captured.append(args)
@@ -124,10 +139,29 @@ class ClaudeAgentLLM:
         del handler  # production-side: handler is fired by the SDK, not by us
 
         async def _drain() -> None:
-            async for _ in query(prompt=prompt, options=options):
-                pass
+            async for msg in query(prompt=prompt, options=options):
+                self._forward_activity(msg)
 
         asyncio.run(_drain())
+
+    def _forward_activity(self, msg: Any) -> None:
+        """Forward an assistant message's text + tool calls to `self.on_event`.
+
+        No-op unless a sink is attached. Thinking blocks, tool results, and
+        non-assistant messages (results/system) are intentionally ignored — the
+        feed shows what Claude says and which tools it runs, not its reasoning.
+        """
+        if self.on_event is None or not isinstance(msg, AssistantMessage):
+            return
+        for block in msg.content:
+            if isinstance(block, TextBlock):
+                self.on_event(
+                    {"kind": "text", "text": block.text, "tool": self._current_tool}
+                )
+            elif isinstance(block, ToolUseBlock):
+                self.on_event(
+                    {"kind": "tool_use", "name": block.name, "tool": self._current_tool}
+                )
 
     def generate_quiz_outline(self, req: GenerateRequest) -> QuizOutline:
         system = _load_prompt("system_generate.txt")

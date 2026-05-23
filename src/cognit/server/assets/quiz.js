@@ -21,7 +21,9 @@ window.mermaid.initialize({
   },
 });
 
-const quiz = window.QUIZ;
+// Mutable: null on first paint when generation is still running (PHASE === "generating");
+// set once /progress reports the finished quiz, then the normal UI renders.
+let quiz = window.QUIZ;
 const questionsRoot = document.getElementById("questions-root");
 const sidebarRoot = document.getElementById("sidebar-root");
 const reviewbar = document.getElementById("reviewbar");
@@ -486,6 +488,21 @@ async function renderResults(results) {
   await window.mermaid.run({ querySelector: "#questions-root .mermaid" });
 }
 
+function showGradingOverlay() {
+  const feed = el("div", { class: "term term--overlay", id: "grade-feed" });
+  const overlay = el("div", { class: "grading-overlay", role: "status", "aria-live": "polite" }, [
+    el("div", { class: "grading-card" }, [
+      el("div", { class: "gen__head" }, [
+        el("span", { class: "gen__spinner", "aria-hidden": "true" }),
+        el("h2", { text: "Grading your answers…" }),
+      ]),
+      feed,
+    ]),
+  ]);
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
 async function submitQuiz() {
   // disable button to prevent double-submit
   const btn = reviewbar.querySelector("button");
@@ -499,11 +516,21 @@ async function submitQuiz() {
       value: String(answers[q.id] ?? ""),
     })),
   };
-  const resp = await fetch("/submit", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(payload),
-  });
+  // Stream the open-question grading activity into an overlay while /submit runs.
+  // The POST response is the authoritative result; the feed is just for show.
+  const overlay = showGradingOverlay();
+  const stopPolling = pollUntilStopped((ev) => appendTermLine(document.getElementById("grade-feed"), ev));
+  let resp;
+  try {
+    resp = await fetch("/submit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } finally {
+    stopPolling();
+    overlay.remove();
+  }
   if (!resp.ok) {
     btn.disabled = false;
     btn.textContent = "Submit quiz";
@@ -590,4 +617,125 @@ async function publishResults() {
   renderPublished(lastResults, data.comment_url);
 }
 
-renderQuestions();
+// ── live activity feed (generation + grading) ───────────────────
+// On a cache miss the server starts before the quiz exists and streams Claude's
+// activity into the broker; we poll /progress and replay from our own cursor, so
+// refresh/reconnect just works. See server/streaming.py.
+
+const POLL_MS = 500;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let feedCursor = 0;
+
+const TOOL_LABELS = {
+  submit_quiz_outline: "Generating outline",
+  submit_mermaid_set: "Drawing diagram",
+  submit_grade: "Grading answer",
+};
+
+function appendTermLine(feed, ev) {
+  if (!feed) return;
+  let line = null;
+  if (ev.kind === "step") {
+    line = el("div", { class: "term__line term__step" }, [
+      el("span", { class: "term__prompt", text: "›" }),
+      el("span", { class: "term__label", text: TOOL_LABELS[ev.tool] || ev.tool }),
+    ]);
+  } else if (ev.kind === "tool_use") {
+    line = el("div", { class: "term__line term__tool" }, [
+      el("span", { class: "term__prompt", text: "·" }),
+      el("span", { class: "term__dim", text: ev.name }),
+    ]);
+  } else if (ev.kind === "text" && ev.text.trim() !== "") {
+    line = el("div", { class: "term__line" }, [
+      el("span", { class: "term__prompt", text: " " }),
+      el("span", { class: "term__text", text: ev.text }),
+    ]);
+  }
+  if (!line) return;
+  feed.appendChild(line);
+  feed.scrollTop = feed.scrollHeight;
+}
+
+function renderGenerating() {
+  questionsRoot.innerHTML = "";
+  const feed = el("div", { class: "term", id: "term-feed" });
+  questionsRoot.appendChild(el("section", { class: "gen" }, [
+    el("div", { class: "gen__head" }, [
+      el("span", { class: "gen__spinner", "aria-hidden": "true" }),
+      el("h2", { text: "Generating your quiz…" }),
+    ]),
+    el("p", { class: "gen__sub", text: "Claude is reading the diff and writing questions. Runs locally; nothing is posted." }),
+    feed,
+  ]));
+  sidebarRoot.innerHTML = "";
+  sidebarRoot.appendChild(el("div", { class: "side-block" }, [
+    el("div", { class: "side-title", text: "Status" }),
+    el("div", { class: "side-text", text: "Generating from the PR diff…" }),
+  ]));
+  reviewbar.className = "reviewbar";
+  reviewbar.innerHTML = "";
+}
+
+function renderGenerationError(message) {
+  questionsRoot.innerHTML = "";
+  questionsRoot.appendChild(el("section", { class: "gen gen--error" }, [
+    el("div", { class: "gen__head" }, [el("h2", { text: "Couldn't generate the quiz" })]),
+    el("p", { class: "gen__sub", text: message || "Generation failed. See the terminal for details." }),
+    el("p", { class: "gen__sub", text: "The quiz wasn't cached, so re-running cognit take will try again." }),
+  ]));
+  reviewbar.className = "reviewbar";
+  reviewbar.innerHTML = "";
+}
+
+// Poll until generation reaches a terminal phase; returns the final snapshot.
+async function pollGeneration(onEvent) {
+  for (;;) {
+    let data;
+    try {
+      data = await (await fetch(`/progress?cursor=${feedCursor}`)).json();
+    } catch (e) {
+      await sleep(POLL_MS);
+      continue;
+    }
+    data.events.forEach(onEvent);
+    feedCursor = data.next_cursor;
+    if (data.phase !== "generating") return data;
+    await sleep(POLL_MS);
+  }
+}
+
+// Poll on an interval until stopped (used during grading, where phase stays "ready").
+function pollUntilStopped(onEvent) {
+  let stopped = false;
+  (async () => {
+    while (!stopped) {
+      try {
+        const data = await (await fetch(`/progress?cursor=${feedCursor}`)).json();
+        data.events.forEach(onEvent);
+        feedCursor = data.next_cursor;
+      } catch (e) {
+        /* transient — retry next tick */
+      }
+      if (stopped) break;
+      await sleep(POLL_MS);
+    }
+  })();
+  return () => { stopped = true; };
+}
+
+async function bootstrap() {
+  if (window.PHASE === "ready" && quiz) {
+    renderQuestions();
+    return;
+  }
+  renderGenerating();
+  const final = await pollGeneration((ev) => appendTermLine(document.getElementById("term-feed"), ev));
+  if (final.phase === "ready" && final.quiz) {
+    quiz = final.quiz;
+    renderQuestions();
+  } else {
+    renderGenerationError(final.error);
+  }
+}
+
+bootstrap();
