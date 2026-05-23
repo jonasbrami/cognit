@@ -289,7 +289,7 @@ function renderReviewbarSubmit() {
   reviewbar.className = "reviewbar is-submit";
   reviewbar.innerHTML = "";
   reviewbar.appendChild(el("div", { class: "reviewbar__msg" }, [
-    "Failing the quiz won't block your merge. Open question grades after submit.",
+    "Open question grades after submit.",
   ]));
   reviewbar.appendChild(el("div", { class: "reviewbar__spacer" }));
   const allAnswered = quiz.questions.every(q => {
