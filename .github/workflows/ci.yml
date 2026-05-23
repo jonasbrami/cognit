@@ -34,10 +34,10 @@ jobs:
       - uses: astral-sh/setup-uv@v3
       - name: Install mermaid-cli
         run: npm install -g @mermaid-js/mermaid-cli@10
-      - name: Install quizz from source
-        run: uv tool install --from . quizz
+      - name: Install cognit from source
+        run: uv tool install --from . cognit
       - name: Verify CLI works
         run: |
-          quizz --version
-          quizz --help
-          quizz take --help
+          cognit --version
+          cognit --help
+          cognit take --help

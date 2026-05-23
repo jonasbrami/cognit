@@ -146,7 +146,9 @@ def test_publish_renders_success_banner(live_server, page) -> None:
     banner = page.locator("#questions-root .banner")
     assert banner.is_visible()
     link = banner.locator("a")
-    assert link.get_attribute("href") == "https://github.com/jonas/quizz/pull/142#issuecomment-9999"
+    assert (
+        link.get_attribute("href") == "https://github.com/jonas/cognit/pull/142#issuecomment-9999"
+    )
 
     # reviewbar flipped to published state
     bar = page.locator("#reviewbar")

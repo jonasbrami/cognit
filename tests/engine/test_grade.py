@@ -1,6 +1,6 @@
-from quizz.engine.grade import grade
-from quizz.engine.llm_fake import FakeLLM
-from quizz.engine.models import (
+from cognit.engine.grade import grade
+from cognit.engine.llm_fake import FakeLLM
+from cognit.engine.models import (
     Quiz,
     MCQQuestion,
     OpenQuestion,

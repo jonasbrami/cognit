@@ -2,11 +2,11 @@
 
 **Status:** approved, ready for implementation plan
 **Date:** 2026-05-22
-**Author:** quizz maintainer (collaborative w/ Claude)
+**Author:** cognit maintainer (collaborative w/ Claude)
 
 ## Problem
 
-`quizz take` defaults to `--model claude-sonnet-4-6`. When the user authenticates via Claude Code OAuth (the recommended path per the README), the first LLM call returns a sparse 429 `rate_limit_error` with body `{"message": "Error"}` and no `anthropic-ratelimit-*` headers. The same call from the official `claude` binary on the same OAuth token succeeds.
+`cognit take` defaults to `--model claude-sonnet-4-6`. When the user authenticates via Claude Code OAuth (the recommended path per the README), the first LLM call returns a sparse 429 `rate_limit_error` with body `{"message": "Error"}` and no `anthropic-ratelimit-*` headers. The same call from the official `claude` binary on the same OAuth token succeeds.
 
 Investigation showed this is **not** a usage-based rate limit. It is Anthropic's API refusing premium-model access for OAuth tokens used by third-party clients:
 
@@ -20,7 +20,7 @@ The current `engine/llm_anthropic.py` adapter calls `api.anthropic.com/v1/messag
 
 ## Goals
 
-1. OAuth-only users can run `quizz take` with the default `--model claude-sonnet-4-6` and Opus, end-to-end.
+1. OAuth-only users can run `cognit take` with the default `--model claude-sonnet-4-6` and Opus, end-to-end.
 2. API-key users keep the current direct-SDK path (faster, no subprocess).
 3. The existing `LLMClient` Protocol, `FakeLLM`, `generate.py`, `grade.py`, `server/app.py`, and all existing tests remain unchanged.
 4. The mermaid artisan fan-out behavior (serial by default, retry on validation failure, drop on persistent failure) is preserved.
@@ -38,7 +38,7 @@ The current `engine/llm_anthropic.py` adapter calls `api.anthropic.com/v1/messag
 Two adapters, one Protocol:
 
 ```
-src/quizz/engine/
+src/cognit/engine/
   llm.py              # LLMClient Protocol  (UNCHANGED)
   llm_anthropic.py    # AnthropicLLM        (UNCHANGED)
   llm_claude_agent.py # ClaudeAgentLLM      (NEW)
@@ -80,18 +80,18 @@ The class implements three methods, each following the same recipe:
    ```
 2. **Wrap it in an in-process MCP server**:
    ```python
-   server = create_sdk_mcp_server(name="quizz", tools=[handler])
+   server = create_sdk_mcp_server(name="cognit", tools=[handler])
    ```
 3. **Build options** with the existing system prompt and tight tool allowlist:
    ```python
    options = ClaudeAgentOptions(
        system_prompt=system_text,
        model=self._model,
-       mcp_servers={"quizz": server},
-       allowed_tools=[f"mcp__quizz__{tool_name}"],
+       mcp_servers={"cognit": server},
+       allowed_tools=[f"mcp__cognit__{tool_name}"],
        max_turns=2,
        permission_mode="bypassPermissions",
-       setting_sources=[],  # ignore project-level settings; quizz brings its own prompt
+       setting_sources=[],  # ignore project-level settings; cognit brings its own prompt
    )
    ```
 4. **Run the agent**:
@@ -115,7 +115,7 @@ User-message construction is identical to `llm_anthropic.py` (re-use `_load_prom
 
 `claude_agent_sdk` does not expose `tool_choice="required"`. Two mitigations:
 
-1. **Allowlist of one.** `allowed_tools=["mcp__quizz__submit_quiz_outline"]` means the agent has no other tool to use.
+1. **Allowlist of one.** `allowed_tools=["mcp__cognit__submit_quiz_outline"]` means the agent has no other tool to use.
 2. **Prompt nudge.** The system prompts already say "Submit your full outline via the `submit_quiz_outline` tool." (see `system_generate.txt:37`). Tighten in the retry prompt only.
 
 ### Error mapping

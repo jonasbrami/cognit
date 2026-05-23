@@ -2,9 +2,9 @@ from pathlib import Path
 
 import pytest
 
-from quizz.engine.generate import generate_quiz
-from quizz.engine.llm_fake import FakeLLM
-from quizz.engine.models import (
+from cognit.engine.generate import generate_quiz
+from cognit.engine.llm_fake import FakeLLM
+from cognit.engine.models import (
     MCQQuestion,
     MermaidPlaceholder,
     MermaidQuestion,
@@ -112,7 +112,7 @@ def test_mermaid_labels_are_shuffled_after_subagent() -> None:
 
 def test_generate_drops_invalid_mermaid(monkeypatch: pytest.MonkeyPatch) -> None:
     """If the artisan keeps producing invalid mermaid after retries, drop the question."""
-    monkeypatch.setattr("quizz.engine.generate._validate_mermaid", lambda src: False)
+    monkeypatch.setattr("cognit.engine.generate._validate_mermaid", lambda src: False)
     outline = QuizOutline(
         questions=[
             _placeholder(),
@@ -164,7 +164,7 @@ def test_generate_retries_artisan_then_succeeds(monkeypatch: pytest.MonkeyPatch)
     # Force the real validator to only accept "flowchart LR" sources, so the invalid_set
     # fails and the valid_set passes — without depending on mmdc being installed.
     monkeypatch.setattr(
-        "quizz.engine.generate._validate_mermaid",
+        "cognit.engine.generate._validate_mermaid",
         lambda src: src.startswith("flowchart"),
     )
     outline = QuizOutline(questions=[_placeholder()])
@@ -209,7 +209,7 @@ def test_generate_survives_validation_error_from_artisan(monkeypatch: pytest.Mon
 
     # Side-step mmdc: any "flowchart …" source is accepted.
     monkeypatch.setattr(
-        "quizz.engine.generate._validate_mermaid",
+        "cognit.engine.generate._validate_mermaid",
         lambda src: src.startswith("flowchart"),
     )
     outline = QuizOutline(

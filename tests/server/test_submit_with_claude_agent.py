@@ -26,9 +26,9 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from quizz.engine.llm_claude_agent import ClaudeAgentLLM
-from quizz.engine.models import MCQQuestion, OpenQuestion, Quiz
-from quizz.server.app import build_app
+from cognit.engine.llm_claude_agent import ClaudeAgentLLM
+from cognit.engine.models import MCQQuestion, OpenQuestion, Quiz
+from cognit.server.app import build_app
 
 
 def test_submit_with_claude_agent_llm_does_not_loop_in_loop(

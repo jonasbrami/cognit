@@ -1,4 +1,4 @@
-from quizz.engine.models import (
+from cognit.engine.models import (
     Quiz,
     Answers,
     Results,
@@ -7,9 +7,9 @@ from quizz.engine.models import (
     TrueFalseQuestion,
 )
 
-_MARKER_QUIZ = "<!-- quizz:quiz v1 -->"
-_MARKER_ANSWERS = "<!-- quizz:answers v1 -->"
-_MARKER_RESULTS = "<!-- quizz:results v1 -->"
+_MARKER_QUIZ = "<!-- cognit:quiz v1 -->"
+_MARKER_ANSWERS = "<!-- cognit:answers v1 -->"
+_MARKER_RESULTS = "<!-- cognit:results v1 -->"
 
 
 def render_quiz(quiz: Quiz) -> str:
@@ -17,7 +17,7 @@ def render_quiz(quiz: Quiz) -> str:
         _MARKER_QUIZ,
         "## Quiz on your PR",
         "",
-        "Take it: `quizz take` or scroll down.",
+        "Take it: `cognit take` or scroll down.",
         "",
     ]
     for i, q in enumerate(quiz.questions, 1):

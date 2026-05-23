@@ -1,4 +1,4 @@
-"""claude_agent_sdk-based LLM adapter for quizz.
+"""claude_agent_sdk-based LLM adapter for cognit.
 
 Routes inference through the official `claude` binary (subprocessed by
 claude_agent_sdk) so users on the Claude Code OAuth path can use sonnet/opus.
@@ -29,8 +29,8 @@ from claude_agent_sdk import (
     tool,
 )
 
-from quizz.engine.llm import GenerateRequest
-from quizz.engine.models import MermaidSet, MermaidSpec, QuizOutline
+from cognit.engine.llm import GenerateRequest
+from cognit.engine.models import MermaidSet, MermaidSpec, QuizOutline
 
 _TOOL_OUTLINE = "submit_quiz_outline"
 _TOOL_MERMAID = "submit_mermaid_set"
@@ -40,7 +40,7 @@ _ToolHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
 def _load_prompt(name: str) -> str:
-    return resources.files("quizz.engine.prompts").joinpath(name).read_text()
+    return resources.files("cognit.engine.prompts").joinpath(name).read_text()
 
 
 def _format_files_blob(files: dict[str, str]) -> str:
@@ -78,12 +78,12 @@ class ClaudeAgentLLM:
             return {"content": [{"type": "text", "text": "ok"}]}
 
         decorated = tool(tool_name, tool_description, tool_schema)(handler)
-        server = create_sdk_mcp_server(name="quizz", tools=[decorated])
+        server = create_sdk_mcp_server(name="cognit", tools=[decorated])
         options = ClaudeAgentOptions(
             system_prompt=system,
             model=self._model,
-            mcp_servers={"quizz": server},
-            allowed_tools=[f"mcp__quizz__{tool_name}"],
+            mcp_servers={"cognit": server},
+            allowed_tools=[f"mcp__cognit__{tool_name}"],
             # Empirically the agent needs ~3 turns (ToolSearch → tool call → confirm).
             # 8 leaves headroom for thinking blocks without letting a stuck agent burn budget.
             max_turns=8,

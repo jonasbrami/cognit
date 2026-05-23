@@ -1,7 +1,7 @@
 import os
 import stat
 import pytest
-from quizz.ghio.diff import fetch_diff_and_files
+from cognit.ghio.diff import fetch_diff_and_files
 
 
 @pytest.fixture

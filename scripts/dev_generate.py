@@ -11,8 +11,8 @@ entire context.
 import sys
 from pathlib import Path
 
-from quizz.engine.generate import generate_quiz
-from quizz.engine.llm_githubmodels import GitHubModelsLLM
+from cognit.engine.generate import generate_quiz
+from cognit.engine.llm_githubmodels import GitHubModelsLLM
 
 
 if __name__ == "__main__":

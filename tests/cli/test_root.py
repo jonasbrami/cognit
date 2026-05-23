@@ -1,5 +1,5 @@
 from typer.testing import CliRunner
-from quizz.cli import app
+from cognit.cli import app
 
 runner = CliRunner()
 
@@ -7,7 +7,7 @@ runner = CliRunner()
 def test_version():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert "quizz" in result.stdout.lower()
+    assert "cognit" in result.stdout.lower()
 
 
 def test_help_lists_subcommands():

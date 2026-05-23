@@ -1,5 +1,5 @@
-from quizz.engine.llm import LLMClient
-from quizz.engine.models import (
+from cognit.engine.llm import LLMClient
+from cognit.engine.models import (
     Quiz,
     Answers,
     Results,

@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from quizz.engine.models import (
+from cognit.engine.models import (
     Quiz,
     MCQQuestion,
     MermaidQuestion,

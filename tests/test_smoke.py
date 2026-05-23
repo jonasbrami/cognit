@@ -1,5 +1,5 @@
-import quizz
+import cognit
 
 
 def test_package_imports():
-    assert quizz.__name__ == "quizz"
+    assert cognit.__name__ == "cognit"

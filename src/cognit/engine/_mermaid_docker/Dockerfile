@@ -11,7 +11,7 @@ WORKDIR /app
 # Pinned to specific minor versions for reproducible builds — bump deliberately
 # when picking up a new mermaid release rather than letting a silent upstream
 # change drift the validator.
-RUN echo '{"name":"quizz-mermaid-validator","version":"1.0.0","type":"module","private":true}' > package.json \
+RUN echo '{"name":"cognit-mermaid-validator","version":"1.0.0","type":"module","private":true}' > package.json \
  && npm install --no-audit --no-fund --no-progress mermaid@11.15.0 jsdom@24.0.0 \
  && npm cache clean --force
 

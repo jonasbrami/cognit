@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 
-from quizz.engine.llm_fake import FakeLLM
-from quizz.engine.models import MCQQuestion, OpenQuestion, Quiz
-from quizz.server.app import build_app
+from cognit.engine.llm_fake import FakeLLM
+from cognit.engine.models import MCQQuestion, OpenQuestion, Quiz
+from cognit.server.app import build_app
 
 
 def _sample_quiz() -> Quiz:
@@ -42,8 +42,8 @@ def test_get_root_renders_quiz() -> None:
     assert 'class="tabs"' in html
     assert 'id="questions-root"' in html
     assert 'id="reviewbar"' in html
-    # the topbar says "quizz" not "GitHub" (decision #4)
-    assert ">quizz<" in html
+    # the topbar says "cognit" not "GitHub" (decision #4)
+    assert ">cognit<" in html
     # PR url linked in the header
     assert "https://github.com/o/r/pull/42" in html
 
@@ -137,7 +137,7 @@ def test_publish_posts_results_comment() -> None:
     # New: results comment should INLINE the question prompts and author answers
     # (since the PR no longer carries a quiz comment to cross-reference).
     md = posted[0]
-    assert "<!-- quizz:results v1 -->" in md
+    assert "<!-- cognit:results v1 -->" in md
     assert "why?" in md, "question prompt should be inlined"
     assert "good answer" in md, "author's answer should be inlined"
 
@@ -199,7 +199,7 @@ def test_submit_then_publish_round_trip() -> None:
     publish_resp = client.post("/publish", json=results)
     assert publish_resp.status_code == 200
     assert len(posted) == 1
-    assert "<!-- quizz:results v1 -->" in posted[0]
+    assert "<!-- cognit:results v1 -->" in posted[0]
 
 
 def test_styles_css_has_expected_sections() -> None:

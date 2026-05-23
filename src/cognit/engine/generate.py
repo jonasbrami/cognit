@@ -14,9 +14,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from pydantic import ValidationError
 
-from quizz.engine.llm import GenerateRequest, LLMClient
-from quizz.engine.mermaid import is_valid_mermaid
-from quizz.engine.models import (
+from cognit.engine.llm import GenerateRequest, LLMClient
+from cognit.engine.mermaid import is_valid_mermaid
+from cognit.engine.models import (
     MermaidPlaceholder,
     MermaidQuestion,
     MermaidSet,

@@ -8,10 +8,10 @@
 
 Major deviations from the original plan:
 
-- **GitHub Actions removed.** Both M4 (generator Action) and M6.2 (grader Action) were prototyped end-to-end against a private sandbox repo, then deliberately removed before shipping. Reasons: GitHub Models rejected the Pydantic strict schema; the fallback path got malformed JSON from `gpt-4o-mini`. We pivoted to local CLI as the canonical path. The Action auto-trigger remains in the v2 backlog. The `quizz generate` and `quizz grade` CLI commands (originally documented as "internal — used by the Action") are now the user-facing surface.
+- **GitHub Actions removed.** Both M4 (generator Action) and M6.2 (grader Action) were prototyped end-to-end against a private sandbox repo, then deliberately removed before shipping. Reasons: GitHub Models rejected the Pydantic strict schema; the fallback path got malformed JSON from `gpt-4o-mini`. We pivoted to local CLI as the canonical path. The Action auto-trigger remains in the v2 backlog. The `cognit generate` and `cognit grade` CLI commands (originally documented as "internal — used by the Action") are now the user-facing surface.
 - **Anthropic LLM adapter added as the default** (not in the original plan, which spec'd GitHub Models only). Uses tool use for guaranteed-schema output. Auth resolution: `api_key` arg → `ANTHROPIC_API_KEY` env → Claude Code OAuth at `~/.claude/.credentials.json`. The GitHub Models adapter is kept as `--llm github` but is not the recommended path.
 - **Question count is now LLM-decided** (originally fixed at 5: "2 MCQ + 1 mermaid + 1 open + 1 tf"). The prompt now tells the model to pick the count and type-mix based on diff size and complexity (typical range 2–10). `question_mix` was removed from `GenerateRequest`.
-- **`quizz take` flow changed.** Originally: `/submit` posts answers comment + browser polls `/results` waiting for the grader Action. Shipped: `/submit` grades EVERYTHING in-session (deterministic + LLM open-question), returns full results inline, **nothing posts to the PR**. A "Publish results to PR" button (POST `/publish`) gives the user opt-in control. The `/results` polling endpoint is gone.
+- **`cognit take` flow changed.** Originally: `/submit` posts answers comment + browser polls `/results` waiting for the grader Action. Shipped: `/submit` grades EVERYTHING in-session (deterministic + LLM open-question), returns full results inline, **nothing posts to the PR**. A "Publish results to PR" button (POST `/publish`) gives the user opt-in control. The `/results` polling endpoint is gone.
 - **UI is editorially redesigned** (warm paper + ink palette, Fraunces serif headline with rust italic accent, blueprint-styled mermaid options, margin-rail ordinals i/ii/iii). The plan called for "vanilla HTML/JS/CSS" — that's still true, but the visual language is much more distinctive than the original placeholder styles.
 - **Mermaid bundle is the UMD build** (`mermaid.min.js`, 3.2MB, single self-contained file) loaded via `<script>`, not the ESM bundle the plan suggested. Reason: jsdelivr's `+esm` mermaid had unresolvable nested imports (`/npm/d3@.../+esm`).
 - **Mermaid option labels are auto-neutralized to A/B/C/D** by a post-processor in `engine/generate.py`, regardless of whatever the LLM produced (it was emitting semantic labels like `correct`/`wrong_1` which leaked the answer).
@@ -25,15 +25,15 @@ What stayed faithful to the plan:
 - `mmdc` validator (optional, skipped silently when missing).
 - MIT license, GoReleaser-equivalent flow via `release.yml` (still untagged at the time of writing).
 
-The code listings in the milestone sections below are historical — they were faithful to the plan as authored, but the shipped code differs in the places above. Use them as guidance for the design intent, not as a reference for current source. The actual source lives at `src/quizz/` and the design contract lives in `INTENTS.md`.
+The code listings in the milestone sections below are historical — they were faithful to the plan as authored, but the shipped code differs in the places above. Use them as guidance for the design intent, not as a reference for current source. The actual source lives at `src/cognit/` and the design contract lives in `INTENTS.md`.
 
 ---
 
-**Goal (original):** Ship a voluntary, opt-in PR-author quiz tool: a portable Python engine, two GitHub Composite Actions (generator + grader), and a single CLI (`quizz take`). End-to-end flow: PR opens → Action posts quiz comment → author runs `quizz take` → local browser quiz → answers comment posted → grader Action LLM-grades open question → results comment posted.
+**Goal (original):** Ship a voluntary, opt-in PR-author quiz tool: a portable Python engine, two GitHub Composite Actions (generator + grader), and a single CLI (`cognit take`). End-to-end flow: PR opens → Action posts quiz comment → author runs `cognit take` → local browser quiz → answers comment posted → grader Action LLM-grades open question → results comment posted.
 
-**Goal (as shipped):** Local CLI only. Three subcommands (`generate`, `take`, `grade`). Flow: author opens PR, runs `quizz generate --post`, runs `quizz take` (browser opens, in-session grading via LLM, opt-in Publish button), done. The Actions wrapper is v2 work.
+**Goal (as shipped):** Local CLI only. Three subcommands (`generate`, `take`, `grade`). Flow: author opens PR, runs `cognit generate --post`, runs `cognit take` (browser opens, in-session grading via LLM, opt-in Publish button), done. The Actions wrapper is v2 work.
 
-**Architecture:** Five-layer package design with a deliberate engine boundary. The `engine` and `comment` packages are pure (no I/O, no GitHub knowledge). `ghio` is the only place that shells to `gh`. `server` is the local FastAPI app for `quizz take`. `cli` is the thin glue. Same engine reused by `generate`, `take`, and `grade` subcommands — and by the v2 GitHub App later.
+**Architecture:** Five-layer package design with a deliberate engine boundary. The `engine` and `comment` packages are pure (no I/O, no GitHub knowledge). `ghio` is the only place that shells to `gh`. `server` is the local FastAPI app for `cognit take`. `cli` is the thin glue. Same engine reused by `generate`, `take`, and `grade` subcommands — and by the v2 GitHub App later.
 
 **Tech stack:** Python 3.12+, `uv` (env/build/publish), `typer` (CLI), `pydantic` v2 (models everywhere), `openai` SDK (against GitHub Models endpoint), `FastAPI`+`uvicorn` (local server), `httpx`+`respx` (HTTP + test mocking), `pytest`+`syrupy` (tests + snapshots), `ruff`+`mypy` (lint/typecheck), `gh` CLI (GitHub I/O), `@mermaid-js/mermaid-cli` (mermaid validation).
 
@@ -42,14 +42,14 @@ The code listings in the milestone sections below are historical — they were f
 ## File layout
 
 ```
-quizz/
+cognit/
 ├── pyproject.toml
 ├── README.md
 ├── LICENSE                        # MIT
 ├── CHANGELOG.md
 ├── uv.lock
 │
-├── src/quizz/
+├── src/cognit/
 │   ├── __init__.py
 │   ├── __main__.py
 │   ├── cli/
@@ -102,16 +102,16 @@ quizz/
 │   └── cli/
 │
 ├── actions/
-│   ├── quizz-generate/action.yml
-│   └── quizz-grade/action.yml
+│   ├── cognit-generate/action.yml
+│   └── cognit-grade/action.yml
 │
 └── .github/
     ├── workflows/
     │   ├── ci.yml
     │   └── release.yml
     └── examples/
-        ├── quizz-generate.yml
-        └── quizz-grade.yml
+        ├── cognit-generate.yml
+        └── cognit-grade.yml
 ```
 
 ---
@@ -124,7 +124,7 @@ Layered, with a strict engine boundary so the same logic feeds v1 (Action+CLI) a
 
 ```
                 ┌──────────────────────────────────────┐
-                │           quizz.cli                  │
+                │           cognit.cli                  │
                 │   (typer entry points — glue)        │
                 │                                      │
                 │   generate.py    take.py    grade.py │
@@ -164,9 +164,9 @@ Layered, with a strict engine boundary so the same logic feeds v1 (Action+CLI) a
 ### Three entry points, same engine
 
 ```
-quizz generate  =  ghio.fetch_pr() → engine.generate() → comment.render() → ghio.post()
-quizz take      =  ghio.fetch_pr() → comment.parse()  → server.run() → ghio.post()
-quizz grade     =  ghio.fetch_pr() → comment.parse()  → engine.grade() → comment.render() → ghio.post()
+cognit generate  =  ghio.fetch_pr() → engine.generate() → comment.render() → ghio.post()
+cognit take      =  ghio.fetch_pr() → comment.parse()  → server.run() → ghio.post()
+cognit grade     =  ghio.fetch_pr() → comment.parse()  → engine.grade() → comment.render() → ghio.post()
 ```
 
 Each subcommand is 30–60 lines of glue. All real logic lives below.
@@ -194,13 +194,13 @@ Each task: file paths, TDD steps, real code, commit. Linear chain — earlier ta
 ### Task M1.1: Project skeleton
 
 **Files:**
-- Create: `pyproject.toml`, `.gitignore`, `src/quizz/__init__.py`, `src/quizz/__main__.py`, `tests/__init__.py`, `tests/conftest.py`
+- Create: `pyproject.toml`, `.gitignore`, `src/cognit/__init__.py`, `src/cognit/__main__.py`, `tests/__init__.py`, `tests/conftest.py`
 
 - [ ] **Step 1: Initialize project**
 
 ```bash
-uv init --package quizz
-cd quizz
+uv init --package cognit
+cd cognit
 uv add pydantic typer "openai>=1.50" httpx
 uv add --dev pytest pytest-asyncio respx syrupy ruff mypy
 ```
@@ -209,7 +209,7 @@ uv add --dev pytest pytest-asyncio respx syrupy ruff mypy
 
 ```toml
 [project]
-name = "quizz"
+name = "cognit"
 version = "0.1.0"
 description = "Voluntary PR-author comprehension quiz tool"
 requires-python = ">=3.12"
@@ -221,7 +221,7 @@ dependencies = [
 ]
 
 [project.scripts]
-quizz = "quizz.cli:app"
+cognit = "cognit.cli:app"
 
 [dependency-groups]
 dev = ["pytest", "pytest-asyncio", "respx", "syrupy", "ruff", "mypy"]
@@ -243,10 +243,10 @@ testpaths = ["tests"]
 
 ```python
 # tests/test_smoke.py
-import quizz
+import cognit
 
 def test_package_imports():
-    assert quizz.__name__ == "quizz"
+    assert cognit.__name__ == "cognit"
 ```
 
 ```bash
@@ -265,7 +265,7 @@ git commit -m "chore: project skeleton (uv, pytest, ruff, mypy)"
 ### Task M1.2: Question models (MCQ, Mermaid, Open, TrueFalse) + Quiz/Answers/Results
 
 **Files:**
-- Create: `src/quizz/engine/__init__.py`, `src/quizz/engine/models.py`, `tests/engine/__init__.py`, `tests/engine/test_models.py`
+- Create: `src/cognit/engine/__init__.py`, `src/cognit/engine/models.py`, `tests/engine/__init__.py`, `tests/engine/test_models.py`
 
 - [ ] **Step 1: Write failing tests**
 
@@ -273,7 +273,7 @@ git commit -m "chore: project skeleton (uv, pytest, ruff, mypy)"
 # tests/engine/test_models.py
 import pytest
 from pydantic import ValidationError
-from quizz.engine.models import (
+from cognit.engine.models import (
     Quiz, Question, MCQQuestion, MermaidQuestion, OpenQuestion, TrueFalseQuestion,
     Answers, AnswerEntry, Results, QuestionResult,
 )
@@ -335,7 +335,7 @@ Expected: FAIL (models don't exist).
 - [ ] **Step 2: Implement models**
 
 ```python
-# src/quizz/engine/models.py
+# src/cognit/engine/models.py
 from typing import Annotated, Literal, Union
 from pydantic import BaseModel, Field, model_validator
 
@@ -429,22 +429,22 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/quizz/engine/ tests/engine/
+git add src/cognit/engine/ tests/engine/
 git commit -m "feat(engine): pydantic models for Quiz/Question/Answers/Results"
 ```
 
 ### Task M1.3: LLM Protocol + fake adapter
 
 **Files:**
-- Create: `src/quizz/engine/llm.py`, `src/quizz/engine/llm_fake.py`, `tests/engine/test_llm_fake.py`
+- Create: `src/cognit/engine/llm.py`, `src/cognit/engine/llm_fake.py`, `tests/engine/test_llm_fake.py`
 
 - [ ] **Step 1: Write failing test**
 
 ```python
 # tests/engine/test_llm_fake.py
-from quizz.engine.llm import LLMClient, GenerateRequest
-from quizz.engine.llm_fake import FakeLLM
-from quizz.engine.models import Quiz, MCQQuestion
+from cognit.engine.llm import LLMClient, GenerateRequest
+from cognit.engine.llm_fake import FakeLLM
+from cognit.engine.models import Quiz, MCQQuestion
 
 def test_fake_returns_canned_quiz():
     canned = Quiz(
@@ -467,10 +467,10 @@ def test_fake_grades_open_question():
 - [ ] **Step 2: Define Protocol + fake**
 
 ```python
-# src/quizz/engine/llm.py
+# src/cognit/engine/llm.py
 from typing import Protocol
 from pydantic import BaseModel
-from quizz.engine.models import Quiz
+from cognit.engine.models import Quiz
 
 
 class GenerateRequest(BaseModel):
@@ -488,9 +488,9 @@ class LLMClient(Protocol):
 ```
 
 ```python
-# src/quizz/engine/llm_fake.py
-from quizz.engine.llm import GenerateRequest
-from quizz.engine.models import Quiz, MCQQuestion
+# src/cognit/engine/llm_fake.py
+from cognit.engine.llm import GenerateRequest
+from cognit.engine.models import Quiz, MCQQuestion
 
 
 class FakeLLM:
@@ -526,14 +526,14 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/quizz/engine/llm.py src/quizz/engine/llm_fake.py tests/engine/test_llm_fake.py
+git add src/cognit/engine/llm.py src/cognit/engine/llm_fake.py tests/engine/test_llm_fake.py
 git commit -m "feat(engine): LLMClient Protocol + FakeLLM test double"
 ```
 
 ### Task M1.4: GitHub Models adapter
 
 **Files:**
-- Create: `src/quizz/engine/llm_githubmodels.py`, `src/quizz/engine/prompts/generate.txt`, `src/quizz/engine/prompts/grade_open.txt`, `tests/engine/test_llm_githubmodels.py`
+- Create: `src/cognit/engine/llm_githubmodels.py`, `src/cognit/engine/prompts/generate.txt`, `src/cognit/engine/prompts/grade_open.txt`, `tests/engine/test_llm_githubmodels.py`
 
 - [ ] **Step 1: Write failing test using `respx`**
 
@@ -542,9 +542,9 @@ git commit -m "feat(engine): LLMClient Protocol + FakeLLM test double"
 import json
 import respx
 import httpx
-from quizz.engine.llm import GenerateRequest
-from quizz.engine.llm_githubmodels import GitHubModelsLLM
-from quizz.engine.models import Quiz, MCQQuestion
+from cognit.engine.llm import GenerateRequest
+from cognit.engine.llm_githubmodels import GitHubModelsLLM
+from cognit.engine.models import Quiz, MCQQuestion
 
 @respx.mock
 def test_generate_quiz_hits_models_endpoint(monkeypatch):
@@ -570,7 +570,7 @@ def test_generate_quiz_hits_models_endpoint(monkeypatch):
 - [ ] **Step 2: Implement adapter**
 
 ```python
-# src/quizz/engine/prompts/generate.txt
+# src/cognit/engine/prompts/generate.txt
 You are a comprehension quiz author. Given a unified diff and the full content of touched files, generate exactly the requested mix of questions probing whether the PR author understands what their code does.
 
 Return JSON matching this schema strictly: {schema}
@@ -589,7 +589,7 @@ Question mix: {question_mix}
 ```
 
 ```python
-# src/quizz/engine/prompts/grade_open.txt
+# src/cognit/engine/prompts/grade_open.txt
 You are grading a developer's answer to a comprehension question about their own PR.
 
 Question: {prompt}
@@ -603,17 +603,17 @@ Score below 50 for misunderstanding.
 ```
 
 ```python
-# src/quizz/engine/llm_githubmodels.py
+# src/cognit/engine/llm_githubmodels.py
 import json
 import os
 from importlib import resources
 from openai import OpenAI
-from quizz.engine.llm import GenerateRequest
-from quizz.engine.models import Quiz
+from cognit.engine.llm import GenerateRequest
+from cognit.engine.models import Quiz
 
 
 def _load_prompt(name: str) -> str:
-    return resources.files("quizz.engine.prompts").joinpath(name).read_text()
+    return resources.files("cognit.engine.prompts").joinpath(name).read_text()
 
 
 class GitHubModelsLLM:
@@ -666,20 +666,20 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/quizz/engine/llm_githubmodels.py src/quizz/engine/prompts/ tests/engine/test_llm_githubmodels.py
+git add src/cognit/engine/llm_githubmodels.py src/cognit/engine/prompts/ tests/engine/test_llm_githubmodels.py
 git commit -m "feat(engine): GitHub Models adapter + prompt templates"
 ```
 
 ### Task M1.5: Mermaid validator
 
 **Files:**
-- Create: `src/quizz/engine/mermaid.py`, `tests/engine/test_mermaid.py`
+- Create: `src/cognit/engine/mermaid.py`, `tests/engine/test_mermaid.py`
 
 - [ ] **Step 1: Write failing test**
 
 ```python
 # tests/engine/test_mermaid.py
-from quizz.engine.mermaid import is_valid_mermaid, MermaidUnavailable
+from cognit.engine.mermaid import is_valid_mermaid, MermaidUnavailable
 import pytest, shutil
 
 @pytest.mark.skipif(not shutil.which("mmdc"), reason="mmdc not installed")
@@ -691,19 +691,19 @@ def test_invalid_diagram():
     assert not is_valid_mermaid("not actually mermaid {{{")
 
 def test_raises_if_mmdc_missing(monkeypatch):
-    monkeypatch.setattr("quizz.engine.mermaid._which_mmdc", lambda: None)
+    monkeypatch.setattr("cognit.engine.mermaid._which_mmdc", lambda: None)
     with pytest.raises(MermaidUnavailable):
         is_valid_mermaid("flowchart LR\nA --> B", strict=True)
 
 def test_skip_if_missing_returns_true_by_default(monkeypatch):
-    monkeypatch.setattr("quizz.engine.mermaid._which_mmdc", lambda: None)
+    monkeypatch.setattr("cognit.engine.mermaid._which_mmdc", lambda: None)
     assert is_valid_mermaid("anything", strict=False) is True
 ```
 
 - [ ] **Step 2: Implement validator**
 
 ```python
-# src/quizz/engine/mermaid.py
+# src/cognit/engine/mermaid.py
 import shutil
 import subprocess
 import tempfile
@@ -746,14 +746,14 @@ Expected: PASS (tests that need mmdc skip if absent).
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/quizz/engine/mermaid.py tests/engine/test_mermaid.py
+git add src/cognit/engine/mermaid.py tests/engine/test_mermaid.py
 git commit -m "feat(engine): mermaid validator wrapping mmdc"
 ```
 
 ### Task M1.6: Generation pipeline with mermaid retry
 
 **Files:**
-- Create: `src/quizz/engine/generate.py`, `tests/engine/test_generate.py`, `tests/fixtures/diffs/small_refactor.patch`
+- Create: `src/cognit/engine/generate.py`, `tests/engine/test_generate.py`, `tests/fixtures/diffs/small_refactor.patch`
 
 - [ ] **Step 1: Add fixture**
 
@@ -778,9 +778,9 @@ git commit -m "feat(engine): mermaid validator wrapping mmdc"
 ```python
 # tests/engine/test_generate.py
 from pathlib import Path
-from quizz.engine.generate import generate_quiz
-from quizz.engine.llm_fake import FakeLLM
-from quizz.engine.models import Quiz, MCQQuestion, MermaidQuestion, OpenQuestion
+from cognit.engine.generate import generate_quiz
+from cognit.engine.llm_fake import FakeLLM
+from cognit.engine.models import Quiz, MCQQuestion, MermaidQuestion, OpenQuestion
 
 FIX = Path(__file__).parent.parent / "fixtures"
 
@@ -805,7 +805,7 @@ def test_generate_returns_quiz_via_llm():
 
 def test_generate_drops_invalid_mermaid(monkeypatch):
     """If mmdc rejects every mermaid candidate after retries, drop the mermaid Q."""
-    monkeypatch.setattr("quizz.engine.generate._validate_mermaid", lambda src: False)
+    monkeypatch.setattr("cognit.engine.generate._validate_mermaid", lambda src: False)
     canned = Quiz(
         pr_number=1,
         questions=[
@@ -826,10 +826,10 @@ def test_generate_drops_invalid_mermaid(monkeypatch):
 - [ ] **Step 3: Implement**
 
 ```python
-# src/quizz/engine/generate.py
-from quizz.engine.llm import LLMClient, GenerateRequest
-from quizz.engine.models import Quiz, MermaidQuestion, MCQQuestion
-from quizz.engine.mermaid import is_valid_mermaid
+# src/cognit/engine/generate.py
+from cognit.engine.llm import LLMClient, GenerateRequest
+from cognit.engine.models import Quiz, MermaidQuestion, MCQQuestion
+from cognit.engine.mermaid import is_valid_mermaid
 
 
 def _validate_mermaid(source: str) -> bool:
@@ -877,22 +877,22 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/quizz/engine/generate.py tests/engine/test_generate.py tests/fixtures/
+git add src/cognit/engine/generate.py tests/engine/test_generate.py tests/fixtures/
 git commit -m "feat(engine): generation pipeline with mermaid retry"
 ```
 
 ### Task M1.7: Grading (deterministic + LLM for open)
 
 **Files:**
-- Create: `src/quizz/engine/grade.py`, `tests/engine/test_grade.py`
+- Create: `src/cognit/engine/grade.py`, `tests/engine/test_grade.py`
 
 - [ ] **Step 1: Write failing tests**
 
 ```python
 # tests/engine/test_grade.py
-from quizz.engine.grade import grade
-from quizz.engine.llm_fake import FakeLLM
-from quizz.engine.models import (
+from cognit.engine.grade import grade
+from cognit.engine.llm_fake import FakeLLM
+from cognit.engine.models import (
     Quiz, MCQQuestion, OpenQuestion, TrueFalseQuestion,
     Answers, AnswerEntry,
 )
@@ -939,9 +939,9 @@ def test_deterministic_wrong():
 - [ ] **Step 2: Implement**
 
 ```python
-# src/quizz/engine/grade.py
-from quizz.engine.llm import LLMClient
-from quizz.engine.models import (
+# src/cognit/engine/grade.py
+from cognit.engine.llm import LLMClient
+from cognit.engine.models import (
     Quiz, Answers, Results, QuestionResult,
     MCQQuestion, MermaidQuestion, OpenQuestion, TrueFalseQuestion,
 )
@@ -981,7 +981,7 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/quizz/engine/grade.py tests/engine/test_grade.py
+git add src/cognit/engine/grade.py tests/engine/test_grade.py
 git commit -m "feat(engine): grading (deterministic + LLM for open Q)"
 ```
 
@@ -997,8 +997,8 @@ git commit -m "feat(engine): grading (deterministic + LLM for open Q)"
 """Manual smoke test. Usage: uv run python scripts/dev_generate.py <diff-file>"""
 import sys
 from pathlib import Path
-from quizz.engine.generate import generate_quiz
-from quizz.engine.llm_githubmodels import GitHubModelsLLM
+from cognit.engine.generate import generate_quiz
+from cognit.engine.llm_githubmodels import GitHubModelsLLM
 
 if __name__ == "__main__":
     diff = Path(sys.argv[1]).read_text()
@@ -1030,14 +1030,14 @@ git commit -m "chore: dev script for manual engine smoke testing"
 ### Task M2.1: Render Quiz to markdown
 
 **Files:**
-- Create: `src/quizz/comment/__init__.py`, `src/quizz/comment/render.py`, `tests/comment/__init__.py`, `tests/comment/test_render.py`
+- Create: `src/cognit/comment/__init__.py`, `src/cognit/comment/render.py`, `tests/comment/__init__.py`, `tests/comment/test_render.py`
 
 - [ ] **Step 1: Write failing test**
 
 ```python
 # tests/comment/test_render.py
-from quizz.comment.render import render_quiz
-from quizz.engine.models import Quiz, MCQQuestion, MermaidQuestion, OpenQuestion, TrueFalseQuestion
+from cognit.comment.render import render_quiz
+from cognit.engine.models import Quiz, MCQQuestion, MermaidQuestion, OpenQuestion, TrueFalseQuestion
 
 def _sample_quiz() -> Quiz:
     return Quiz(
@@ -1055,7 +1055,7 @@ def _sample_quiz() -> Quiz:
 
 def test_render_includes_marker():
     md = render_quiz(_sample_quiz())
-    assert "<!-- quizz:quiz v1 -->" in md
+    assert "<!-- cognit:quiz v1 -->" in md
 
 def test_render_mermaid_uses_code_fence():
     md = render_quiz(_sample_quiz())
@@ -1071,19 +1071,19 @@ def test_render_embeds_json_state():
 - [ ] **Step 2: Implement**
 
 ```python
-# src/quizz/comment/render.py
-from quizz.engine.models import (
+# src/cognit/comment/render.py
+from cognit.engine.models import (
     Quiz, Answers, Results,
     MCQQuestion, MermaidQuestion, OpenQuestion, TrueFalseQuestion,
 )
 
-_MARKER_QUIZ = "<!-- quizz:quiz v1 -->"
-_MARKER_ANSWERS = "<!-- quizz:answers v1 -->"
-_MARKER_RESULTS = "<!-- quizz:results v1 -->"
+_MARKER_QUIZ = "<!-- cognit:quiz v1 -->"
+_MARKER_ANSWERS = "<!-- cognit:answers v1 -->"
+_MARKER_RESULTS = "<!-- cognit:results v1 -->"
 
 
 def render_quiz(quiz: Quiz) -> str:
-    parts = [_MARKER_QUIZ, "## Quiz on your PR", "", "Take it: `quizz take` or scroll down.", ""]
+    parts = [_MARKER_QUIZ, "## Quiz on your PR", "", "Take it: `cognit take` or scroll down.", ""]
     for i, q in enumerate(quiz.questions, 1):
         parts.append(f"### Question {i} — {q.type}")
         parts.append(q.prompt)
@@ -1140,22 +1140,22 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/quizz/comment/ tests/comment/
+git add src/cognit/comment/ tests/comment/
 git commit -m "feat(comment): render Quiz/Answers/Results to markdown"
 ```
 
 ### Task M2.2: Parse markdown back into models + roundtrip tests
 
 **Files:**
-- Create: `src/quizz/comment/parse.py`, `tests/comment/test_roundtrip.py`
+- Create: `src/cognit/comment/parse.py`, `tests/comment/test_roundtrip.py`
 
 - [ ] **Step 1: Write roundtrip tests**
 
 ```python
 # tests/comment/test_roundtrip.py
-from quizz.comment.render import render_quiz, render_answers, render_results
-from quizz.comment.parse import parse_quiz, parse_answers, parse_results
-from quizz.engine.models import (
+from cognit.comment.render import render_quiz, render_answers, render_results
+from cognit.comment.parse import parse_quiz, parse_answers, parse_results
+from cognit.engine.models import (
     Quiz, Answers, Results, AnswerEntry, QuestionResult,
     MCQQuestion, OpenQuestion,
 )
@@ -1193,10 +1193,10 @@ def test_results_roundtrip():
 - [ ] **Step 2: Implement parser**
 
 ```python
-# src/quizz/comment/parse.py
+# src/cognit/comment/parse.py
 import json
 import re
-from quizz.engine.models import Quiz, Answers, Results, QuestionResult
+from cognit.engine.models import Quiz, Answers, Results, QuestionResult
 
 _JSON_BLOCK = re.compile(r"```json\s*\n(.*?)\n```", re.DOTALL)
 
@@ -1212,16 +1212,16 @@ def _extract_json(md: str, marker: str) -> str:
 
 
 def parse_quiz(md: str) -> Quiz:
-    return Quiz.model_validate_json(_extract_json(md, "<!-- quizz:quiz v1 -->"))
+    return Quiz.model_validate_json(_extract_json(md, "<!-- cognit:quiz v1 -->"))
 
 
 def parse_answers(md: str) -> Answers:
-    return Answers.model_validate_json(_extract_json(md, "<!-- quizz:answers v1 -->"))
+    return Answers.model_validate_json(_extract_json(md, "<!-- cognit:answers v1 -->"))
 
 
 def parse_results(md: str) -> Results:
     # Results markdown is for humans; parser is lossy/best-effort.
-    if "<!-- quizz:results v1 -->" not in md:
+    if "<!-- cognit:results v1 -->" not in md:
         raise ValueError("not a results comment")
     total = 0
     m = re.search(r"\*\*Total:\s*(\d+)%\*\*", md)
@@ -1250,32 +1250,32 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/quizz/comment/parse.py tests/comment/test_roundtrip.py
+git add src/cognit/comment/parse.py tests/comment/test_roundtrip.py
 git commit -m "feat(comment): parse Quiz/Answers/Results from markdown + roundtrip tests"
 ```
 
 ---
 
-## M3 — CLI scaffold + `quizz generate`
+## M3 — CLI scaffold + `cognit generate`
 
 ### Task M3.1: typer scaffold
 
 **Files:**
-- Create: `src/quizz/cli/__init__.py`, `src/quizz/cli/version.py`, `tests/cli/__init__.py`, `tests/cli/test_root.py`
+- Create: `src/cognit/cli/__init__.py`, `src/cognit/cli/version.py`, `tests/cli/__init__.py`, `tests/cli/test_root.py`
 
 - [ ] **Step 1: Write failing test**
 
 ```python
 # tests/cli/test_root.py
 from typer.testing import CliRunner
-from quizz.cli import app
+from cognit.cli import app
 
 runner = CliRunner()
 
 def test_version():
     result = runner.invoke(app, ["--version"])
     assert result.exit_code == 0
-    assert "quizz" in result.stdout.lower()
+    assert "cognit" in result.stdout.lower()
 
 def test_help_lists_subcommands():
     result = runner.invoke(app, ["--help"])
@@ -1287,21 +1287,21 @@ def test_help_lists_subcommands():
 - [ ] **Step 2: Implement scaffold**
 
 ```python
-# src/quizz/cli/version.py
+# src/cognit/cli/version.py
 __version__ = "0.1.0"
 ```
 
 ```python
-# src/quizz/cli/__init__.py
+# src/cognit/cli/__init__.py
 import typer
-from quizz.cli.version import __version__
+from cognit.cli.version import __version__
 
 app = typer.Typer(no_args_is_help=True, help="PR-author comprehension quiz tool")
 
 
 def _version_callback(value: bool):
     if value:
-        typer.echo(f"quizz {__version__}")
+        typer.echo(f"cognit {__version__}")
         raise typer.Exit()
 
 
@@ -1341,14 +1341,14 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/quizz/cli/ tests/cli/
+git add src/cognit/cli/ tests/cli/
 git commit -m "feat(cli): typer scaffold with stub subcommands"
 ```
 
 ### Task M3.2: ghio.pr — fetch PR metadata via `gh`
 
 **Files:**
-- Create: `src/quizz/ghio/__init__.py`, `src/quizz/ghio/pr.py`, `tests/ghio/__init__.py`, `tests/ghio/test_pr.py`
+- Create: `src/cognit/ghio/__init__.py`, `src/cognit/ghio/pr.py`, `tests/ghio/__init__.py`, `tests/ghio/test_pr.py`
 
 - [ ] **Step 1: Write failing test using a fake `gh` shim**
 
@@ -1359,7 +1359,7 @@ import os
 import stat
 from pathlib import Path
 import pytest
-from quizz.ghio.pr import fetch_pr_info, PRInfo
+from cognit.ghio.pr import fetch_pr_info, PRInfo
 
 
 @pytest.fixture
@@ -1397,7 +1397,7 @@ def test_fetch_pr_info(fake_gh):
 - [ ] **Step 2: Implement**
 
 ```python
-# src/quizz/ghio/pr.py
+# src/cognit/ghio/pr.py
 import json
 import subprocess
 from dataclasses import dataclass
@@ -1458,14 +1458,14 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/quizz/ghio/ tests/ghio/
+git add src/cognit/ghio/ tests/ghio/
 git commit -m "feat(ghio): PR metadata fetch and comment ops via gh CLI"
 ```
 
 ### Task M3.3: ghio.diff — fetch diff + touched files
 
 **Files:**
-- Create: `src/quizz/ghio/diff.py`, `tests/ghio/test_diff.py`
+- Create: `src/cognit/ghio/diff.py`, `tests/ghio/test_diff.py`
 
 - [ ] **Step 1: Write failing test**
 
@@ -1475,7 +1475,7 @@ import os
 import stat
 from pathlib import Path
 import pytest
-from quizz.ghio.diff import fetch_diff_and_files
+from cognit.ghio.diff import fetch_diff_and_files
 
 
 @pytest.fixture
@@ -1516,7 +1516,7 @@ def test_diff_returns_unified_diff(fake_gh_diff):
 - [ ] **Step 2: Implement**
 
 ```python
-# src/quizz/ghio/diff.py
+# src/cognit/ghio/diff.py
 import json
 import subprocess
 from typing import Callable
@@ -1566,15 +1566,15 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/quizz/ghio/diff.py tests/ghio/test_diff.py
+git add src/cognit/ghio/diff.py tests/ghio/test_diff.py
 git commit -m "feat(ghio): fetch diff and touched-file contents"
 ```
 
-### Task M3.4: `quizz generate` command
+### Task M3.4: `cognit generate` command
 
 **Files:**
-- Modify: `src/quizz/cli/__init__.py` (replace stub)
-- Create: `src/quizz/cli/generate.py`, `tests/cli/test_generate.py`
+- Modify: `src/cognit/cli/__init__.py` (replace stub)
+- Create: `src/cognit/cli/generate.py`, `tests/cli/test_generate.py`
 
 - [ ] **Step 1: Write failing test using FakeLLM end-to-end**
 
@@ -1583,10 +1583,10 @@ git commit -m "feat(ghio): fetch diff and touched-file contents"
 import json
 from unittest.mock import patch
 from typer.testing import CliRunner
-from quizz.cli import app
-from quizz.engine.models import Quiz, MCQQuestion
-from quizz.engine.llm_fake import FakeLLM
-from quizz.ghio.pr import PRInfo
+from cognit.cli import app
+from cognit.engine.models import Quiz, MCQQuestion
+from cognit.engine.llm_fake import FakeLLM
+from cognit.ghio.pr import PRInfo
 
 runner = CliRunner()
 
@@ -1596,34 +1596,34 @@ def test_generate_dry_run_prints_markdown(monkeypatch):
         MCQQuestion(id="q1", prompt="why?", options=["A","B"], answer="A"),
     ])
     monkeypatch.setattr(
-        "quizz.ghio.pr.fetch_pr_info",
+        "cognit.ghio.pr.fetch_pr_info",
         lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "quizz.ghio.diff.fetch_diff_and_files",
+        "cognit.ghio.diff.fetch_diff_and_files",
         lambda pr, fetch_file_contents=None: ("diffstr", {}),
     )
     monkeypatch.setattr(
-        "quizz.cli.generate._make_llm",
+        "cognit.cli.generate._make_llm",
         lambda model: FakeLLM(canned_quiz=canned),
     )
     result = runner.invoke(app, ["generate", "--pr", "https://github.com/o/r/pull/42", "--dry-run"])
     assert result.exit_code == 0
-    assert "<!-- quizz:quiz v1 -->" in result.stdout
+    assert "<!-- cognit:quiz v1 -->" in result.stdout
     assert "why?" in result.stdout
 ```
 
 - [ ] **Step 2: Implement**
 
 ```python
-# src/quizz/cli/generate.py
+# src/cognit/cli/generate.py
 import typer
-from quizz.comment.render import render_quiz
-from quizz.engine.generate import generate_quiz
-from quizz.engine.llm import LLMClient
-from quizz.engine.llm_githubmodels import GitHubModelsLLM
-from quizz.ghio.pr import fetch_pr_info, post_comment
-from quizz.ghio.diff import fetch_diff_and_files, read_file_at_head
+from cognit.comment.render import render_quiz
+from cognit.engine.generate import generate_quiz
+from cognit.engine.llm import LLMClient
+from cognit.engine.llm_githubmodels import GitHubModelsLLM
+from cognit.ghio.pr import fetch_pr_info, post_comment
+from cognit.ghio.diff import fetch_diff_and_files, read_file_at_head
 
 
 def _make_llm(model: str) -> LLMClient:
@@ -1666,17 +1666,17 @@ def run(
 ```
 
 ```python
-# src/quizz/cli/__init__.py  (replace the stub `generate` command)
+# src/cognit/cli/__init__.py  (replace the stub `generate` command)
 import typer
-from quizz.cli.version import __version__
-from quizz.cli import generate as _gen
+from cognit.cli.version import __version__
+from cognit.cli import generate as _gen
 
 app = typer.Typer(no_args_is_help=True, help="PR-author comprehension quiz tool")
 
 
 def _version_callback(value: bool):
     if value:
-        typer.echo(f"quizz {__version__}")
+        typer.echo(f"cognit {__version__}")
         raise typer.Exit()
 
 
@@ -1721,15 +1721,15 @@ Expected: PASS.
 - [ ] **Step 4: Manual smoke test**
 
 ```bash
-uv tool install --from . quizz
-quizz generate --pr <sandbox-pr-url> --dry-run
+uv tool install --from . cognit
+cognit generate --pr <sandbox-pr-url> --dry-run
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/quizz/cli/ tests/cli/
-git commit -m "feat(cli): quizz generate orchestrates ghio + engine + comment"
+git add src/cognit/cli/ tests/cli/
+git commit -m "feat(cli): cognit generate orchestrates ghio + engine + comment"
 ```
 
 ---
@@ -1739,18 +1739,18 @@ git commit -m "feat(cli): quizz generate orchestrates ghio + engine + comment"
 ### Task M4.1: Composite action.yml
 
 **Files:**
-- Create: `actions/quizz-generate/action.yml`, `.github/examples/quizz-generate.yml`
+- Create: `actions/cognit-generate/action.yml`, `.github/examples/cognit-generate.yml`
 
 - [ ] **Step 1: Write the Composite Action**
 
 ```yaml
-# actions/quizz-generate/action.yml
-name: "Quizz Generate"
+# actions/cognit-generate/action.yml
+name: "Cognit Generate"
 description: "Generate a PR-author comprehension quiz and post it as a PR comment."
 
 inputs:
   version:
-    description: "Pinned quizz PyPI version"
+    description: "Pinned cognit PyPI version"
     default: "0.1.0"
   model:
     description: "LLM model to use (e.g. gpt-4o-mini)"
@@ -1778,16 +1778,16 @@ runs:
       shell: bash
       run: npm install -g @mermaid-js/mermaid-cli@10
 
-    - name: Install quizz
+    - name: Install cognit
       shell: bash
-      run: uv tool install "quizz==${{ inputs.version }}"
+      run: uv tool install "cognit==${{ inputs.version }}"
 
     - name: Run generator
       shell: bash
       env:
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
       run: |
-        quizz generate \
+        cognit generate \
           --pr "${{ github.event.pull_request.html_url }}" \
           --post \
           --model "${{ inputs.model }}" \
@@ -1798,8 +1798,8 @@ runs:
 - [ ] **Step 2: Write the example workflow**
 
 ```yaml
-# .github/examples/quizz-generate.yml
-name: Quizz — generate
+# .github/examples/cognit-generate.yml
+name: Cognit — generate
 on:
   pull_request:
     types: [opened, synchronize, reopened]
@@ -1810,13 +1810,13 @@ permissions:
   models: read
 
 jobs:
-  quizz:
+  cognit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      - uses: <your-org>/quizz/actions/quizz-generate@v1
+      - uses: <your-org>/cognit/actions/cognit-generate@v1
 ```
 
 - [ ] **Step 3: Commit**
@@ -1856,9 +1856,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v3
       - run: npm install -g @mermaid-js/mermaid-cli@10
-      - run: uv tool install --from . quizz
-      - run: quizz --help
-      - run: quizz generate --help
+      - run: uv tool install --from . cognit
+      - run: cognit --help
+      - run: cognit generate --help
 ```
 
 - [ ] **Step 2: Run locally with act**
@@ -1883,26 +1883,26 @@ git commit -m "ci: lint + typecheck + tests + Action smoke"
 
 ---
 
-## M5 — CLI `quizz take` + local web UI
+## M5 — CLI `cognit take` + local web UI
 
 ### Task M5.1: `take` subcommand auto-detects PR
 
 **Files:**
-- Create: `src/quizz/cli/take.py`, `tests/cli/test_take.py`
-- Modify: `src/quizz/cli/__init__.py` (replace stub)
+- Create: `src/cognit/cli/take.py`, `tests/cli/test_take.py`
+- Modify: `src/cognit/cli/__init__.py` (replace stub)
 
 - [ ] **Step 1: Write failing test**
 
 ```python
 # tests/cli/test_take.py
 from typer.testing import CliRunner
-from quizz.cli import app
+from cognit.cli import app
 
 runner = CliRunner()
 
 
 def test_take_requires_pr_or_branch(monkeypatch):
-    monkeypatch.setattr("quizz.cli.take._detect_pr_from_branch", lambda: None)
+    monkeypatch.setattr("cognit.cli.take._detect_pr_from_branch", lambda: None)
     result = runner.invoke(app, ["take"])
     assert result.exit_code != 0
     assert "no PR" in result.stdout.lower()
@@ -1910,11 +1910,11 @@ def test_take_requires_pr_or_branch(monkeypatch):
 
 def test_take_auto_detects(monkeypatch):
     monkeypatch.setattr(
-        "quizz.cli.take._detect_pr_from_branch",
+        "cognit.cli.take._detect_pr_from_branch",
         lambda: "https://github.com/o/r/pull/42",
     )
     monkeypatch.setattr(
-        "quizz.cli.take._run_take_flow",
+        "cognit.cli.take._run_take_flow",
         lambda pr_url, show_results_only: None,
     )
     result = runner.invoke(app, ["take"])
@@ -1924,7 +1924,7 @@ def test_take_auto_detects(monkeypatch):
 - [ ] **Step 2: Implement skeleton**
 
 ```python
-# src/quizz/cli/take.py
+# src/cognit/cli/take.py
 import subprocess
 import typer
 
@@ -1954,9 +1954,9 @@ def run(pr: str | None, show_results: bool) -> None:
 ```
 
 ```python
-# src/quizz/cli/__init__.py  (replace the stub `take`)
+# src/cognit/cli/__init__.py  (replace the stub `take`)
 # ... add at top of file:
-from quizz.cli import take as _take
+from cognit.cli import take as _take
 
 # replace the stub command:
 @app.command()
@@ -1978,30 +1978,30 @@ Expected: PASS.
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/quizz/cli/take.py tests/cli/test_take.py src/quizz/cli/__init__.py
+git add src/cognit/cli/take.py tests/cli/test_take.py src/cognit/cli/__init__.py
 git commit -m "feat(cli): take command scaffold with PR auto-detect"
 ```
 
 ### Task M5.2: Find quiz comment in PR
 
 **Files:**
-- Modify: `src/quizz/ghio/pr.py`, `tests/ghio/test_pr.py`
+- Modify: `src/cognit/ghio/pr.py`, `tests/ghio/test_pr.py`
 
 - [ ] **Step 1: Write failing test**
 
 ```python
 # tests/ghio/test_pr.py  (add)
 def test_find_quiz_comment(monkeypatch):
-    from quizz.ghio.pr import find_latest_marker_comment
+    from cognit.ghio.pr import find_latest_marker_comment
     monkeypatch.setattr(
-        "quizz.ghio.pr.list_comments",
+        "cognit.ghio.pr.list_comments",
         lambda pr: [
             {"body": "drive-by", "createdAt": "2026-01-01T00:00:00Z"},
-            {"body": "<!-- quizz:quiz v1 -->\n```json\n{...}\n```", "createdAt": "2026-01-02T00:00:00Z"},
-            {"body": "<!-- quizz:quiz v1 -->\nnewer", "createdAt": "2026-01-03T00:00:00Z"},
+            {"body": "<!-- cognit:quiz v1 -->\n```json\n{...}\n```", "createdAt": "2026-01-02T00:00:00Z"},
+            {"body": "<!-- cognit:quiz v1 -->\nnewer", "createdAt": "2026-01-03T00:00:00Z"},
         ],
     )
-    c = find_latest_marker_comment("123", "<!-- quizz:quiz v1 -->")
+    c = find_latest_marker_comment("123", "<!-- cognit:quiz v1 -->")
     assert c is not None
     assert "newer" in c
 ```
@@ -2009,7 +2009,7 @@ def test_find_quiz_comment(monkeypatch):
 - [ ] **Step 2: Implement**
 
 ```python
-# src/quizz/ghio/pr.py  (add)
+# src/cognit/ghio/pr.py  (add)
 def find_latest_marker_comment(pr_url_or_number: str, marker: str) -> str | None:
     comments = list_comments(pr_url_or_number)
     matching = [c for c in comments if marker in c["body"]]
@@ -2023,14 +2023,14 @@ def find_latest_marker_comment(pr_url_or_number: str, marker: str) -> str | None
 
 ```bash
 uv run pytest tests/ghio/ -v
-git add src/quizz/ghio/pr.py tests/ghio/test_pr.py
+git add src/cognit/ghio/pr.py tests/ghio/test_pr.py
 git commit -m "feat(ghio): find_latest_marker_comment"
 ```
 
 ### Task M5.3: FastAPI app skeleton with embedded assets
 
 **Files:**
-- Create: `src/quizz/server/__init__.py`, `src/quizz/server/app.py`, `src/quizz/server/assets/index.html`, `src/quizz/server/assets/quiz.js`, `src/quizz/server/assets/styles.css`, `tests/server/__init__.py`, `tests/server/test_app.py`
+- Create: `src/cognit/server/__init__.py`, `src/cognit/server/app.py`, `src/cognit/server/assets/index.html`, `src/cognit/server/assets/quiz.js`, `src/cognit/server/assets/styles.css`, `tests/server/__init__.py`, `tests/server/test_app.py`
 - Modify: `pyproject.toml` (add fastapi + uvicorn)
 
 - [ ] **Step 1: Add deps**
@@ -2044,8 +2044,8 @@ uv add fastapi uvicorn
 ```python
 # tests/server/test_app.py
 from fastapi.testclient import TestClient
-from quizz.engine.models import Quiz, MCQQuestion
-from quizz.server.app import build_app
+from cognit.engine.models import Quiz, MCQQuestion
+from cognit.server.app import build_app
 
 
 def test_get_root_renders_quiz():
@@ -2071,7 +2071,7 @@ def test_static_assets_served():
 - [ ] **Step 3: Implement (minimal)**
 
 ```html
-<!-- src/quizz/server/assets/index.html -->
+<!-- src/cognit/server/assets/index.html -->
 <!doctype html>
 <html>
 <head>
@@ -2094,7 +2094,7 @@ def test_static_assets_served():
 ```
 
 ```javascript
-// src/quizz/server/assets/quiz.js
+// src/cognit/server/assets/quiz.js
 import mermaid from "/static/mermaid.esm.min.js";
 mermaid.initialize({ startOnLoad: false });
 
@@ -2142,7 +2142,7 @@ render();
 ```
 
 ```css
-/* src/quizz/server/assets/styles.css */
+/* src/cognit/server/assets/styles.css */
 body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; }
 section { border: 1px solid #ccc; padding: 1rem; margin: 1rem 0; border-radius: 6px; }
 .mermaid { background: #f6f8fa; padding: 0.5rem; }
@@ -2150,20 +2150,20 @@ button { padding: 0.6rem 1.2rem; font-size: 1rem; }
 ```
 
 ```python
-# src/quizz/server/app.py
+# src/cognit/server/app.py
 import json
 from importlib import resources
 from typing import Callable
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from quizz.engine.models import Quiz, Answers
-from quizz.engine.grade import grade
-from quizz.engine.llm_fake import FakeLLM
+from cognit.engine.models import Quiz, Answers
+from cognit.engine.grade import grade
+from cognit.engine.llm_fake import FakeLLM
 
 
 def _assets_dir():
-    return resources.files("quizz.server.assets")
+    return resources.files("cognit.server.assets")
 
 
 def build_app(
@@ -2192,7 +2192,7 @@ def build_app(
         answers = Answers.model_validate(body)
         # deterministic grading immediately (open Q scored 0 here; CI will re-grade)
         results = grade(quiz, answers, llm=FakeLLM(canned_open_score=0, canned_open_feedback="awaiting CI"))
-        from quizz.comment.render import render_answers
+        from cognit.comment.render import render_answers
         det_score = sum(
             r.score for r in results.per_question
             if any(q.id == r.question_id and q.type != "open" for q in quiz.questions)
@@ -2208,7 +2208,7 @@ def build_app(
 
 ```bash
 curl -L https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs \
-  -o src/quizz/server/assets/mermaid.esm.min.js
+  -o src/cognit/server/assets/mermaid.esm.min.js
 ```
 
 - [ ] **Step 5: Run tests**
@@ -2221,14 +2221,14 @@ Expected: PASS.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/quizz/server/ tests/server/ pyproject.toml uv.lock
+git add src/cognit/server/ tests/server/ pyproject.toml uv.lock
 git commit -m "feat(server): FastAPI app + embedded quiz UI"
 ```
 
 ### Task M5.4: Wire `take` to the server, launch browser, poll for results
 
 **Files:**
-- Modify: `src/quizz/cli/take.py`
+- Modify: `src/cognit/cli/take.py`
 - Modify: `tests/cli/test_take.py`
 
 - [ ] **Step 1: Write failing test for the orchestration**
@@ -2236,22 +2236,22 @@ git commit -m "feat(server): FastAPI app + embedded quiz UI"
 ```python
 # tests/cli/test_take.py  (add)
 def test_take_flow_fetches_parses_and_runs_server(monkeypatch):
-    from quizz.engine.models import Quiz, MCQQuestion
-    from quizz.comment.render import render_quiz
+    from cognit.engine.models import Quiz, MCQQuestion
+    from cognit.comment.render import render_quiz
     quiz = Quiz(pr_number=42, questions=[
         MCQQuestion(id="q1", prompt="?", options=["A","B"], answer="A"),
     ])
     monkeypatch.setattr(
-        "quizz.ghio.pr.find_latest_marker_comment",
+        "cognit.ghio.pr.find_latest_marker_comment",
         lambda pr, marker: render_quiz(quiz),
     )
     captured = {}
     def fake_serve(quiz_, pr_url, post_answers):
         captured["quiz"] = quiz_
         captured["pr_url"] = pr_url
-    monkeypatch.setattr("quizz.cli.take._serve_blocking", fake_serve)
+    monkeypatch.setattr("cognit.cli.take._serve_blocking", fake_serve)
 
-    from quizz.cli.take import _run_take_flow
+    from cognit.cli.take import _run_take_flow
     _run_take_flow("https://github.com/o/r/pull/42", show_results_only=False)
     assert captured["quiz"] == quiz
     assert captured["pr_url"] == "https://github.com/o/r/pull/42"
@@ -2260,7 +2260,7 @@ def test_take_flow_fetches_parses_and_runs_server(monkeypatch):
 - [ ] **Step 2: Implement orchestration + browser launch**
 
 ```python
-# src/quizz/cli/take.py  (replace _run_take_flow + add helpers)
+# src/cognit/cli/take.py  (replace _run_take_flow + add helpers)
 import socket
 import threading
 import time
@@ -2270,13 +2270,13 @@ import subprocess
 import typer
 import uvicorn
 
-from quizz.comment.parse import parse_quiz, parse_results
-from quizz.ghio.pr import find_latest_marker_comment, post_comment
-from quizz.server.app import build_app
+from cognit.comment.parse import parse_quiz, parse_results
+from cognit.ghio.pr import find_latest_marker_comment, post_comment
+from cognit.server.app import build_app
 
 
-_MARKER_QUIZ = "<!-- quizz:quiz v1 -->"
-_MARKER_RESULTS = "<!-- quizz:results v1 -->"
+_MARKER_QUIZ = "<!-- cognit:quiz v1 -->"
+_MARKER_RESULTS = "<!-- cognit:results v1 -->"
 
 
 def _detect_pr_from_branch() -> str | None:
@@ -2343,32 +2343,32 @@ Expected: PASS.
 
 ```bash
 # in a sandbox repo with a quiz comment present
-quizz take
+cognit take
 ```
 Expected: browser opens; quiz renders; submitting posts an answers comment.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/quizz/cli/take.py tests/cli/test_take.py
+git add src/cognit/cli/take.py tests/cli/test_take.py
 git commit -m "feat(cli): take orchestrates fetch → server → post-answers"
 ```
 
 ### Task M5.5: Polling for results in the browser
 
 **Files:**
-- Modify: `src/quizz/server/app.py`, `src/quizz/server/assets/quiz.js`
+- Modify: `src/cognit/server/app.py`, `src/cognit/server/assets/quiz.js`
 
 - [ ] **Step 1: Add `/results` endpoint**
 
 ```python
-# src/quizz/server/app.py  (add inside build_app)
-from quizz.comment.parse import parse_results
-from quizz.ghio.pr import find_latest_marker_comment
+# src/cognit/server/app.py  (add inside build_app)
+from cognit.comment.parse import parse_results
+from cognit.ghio.pr import find_latest_marker_comment
 
 @app.get("/results")
 def results_endpoint() -> JSONResponse:
-    md = find_latest_marker_comment(pr_url, "<!-- quizz:results v1 -->")
+    md = find_latest_marker_comment(pr_url, "<!-- cognit:results v1 -->")
     if md is None:
         return JSONResponse({"ready": False})
     return JSONResponse({"ready": True, "results": parse_results(md).model_dump()})
@@ -2391,7 +2391,7 @@ async function pollResults() {
     await new Promise(r => setTimeout(r, 2500));
   }
   document.getElementById("result").textContent =
-    "Results not back after 5 minutes — run `quizz take --show-results` later.";
+    "Results not back after 5 minutes — run `cognit take --show-results` later.";
 }
 
 document.getElementById("submit").addEventListener("click", () => {
@@ -2406,29 +2406,29 @@ Open a PR with a quiz, take it, observe the browser poll until the grader Action
 - [ ] **Step 4: Commit**
 
 ```bash
-git add src/quizz/server/
+git add src/cognit/server/
 git commit -m "feat(server): /results endpoint + browser polling"
 ```
 
 ---
 
-## M6 — Grader Action + `quizz grade`
+## M6 — Grader Action + `cognit grade`
 
-### Task M6.1: `quizz grade` command
+### Task M6.1: `cognit grade` command
 
 **Files:**
-- Create: `src/quizz/cli/grade.py`, `tests/cli/test_grade.py`
-- Modify: `src/quizz/cli/__init__.py`
+- Create: `src/cognit/cli/grade.py`, `tests/cli/test_grade.py`
+- Modify: `src/cognit/cli/__init__.py`
 
 - [ ] **Step 1: Write failing test**
 
 ```python
 # tests/cli/test_grade.py
 from typer.testing import CliRunner
-from quizz.cli import app
-from quizz.engine.models import Quiz, MCQQuestion, OpenQuestion, Answers, AnswerEntry
-from quizz.engine.llm_fake import FakeLLM
-from quizz.comment.render import render_quiz, render_answers
+from cognit.cli import app
+from cognit.engine.models import Quiz, MCQQuestion, OpenQuestion, Answers, AnswerEntry
+from cognit.engine.llm_fake import FakeLLM
+from cognit.comment.render import render_quiz, render_answers
 
 runner = CliRunner()
 
@@ -2443,33 +2443,33 @@ def test_grade_command_posts_results(monkeypatch):
         AnswerEntry(question_id="q2", value="my answer"),
     ])
     monkeypatch.setattr(
-        "quizz.ghio.pr.find_latest_marker_comment",
+        "cognit.ghio.pr.find_latest_marker_comment",
         lambda pr, marker: render_quiz(quiz) if "quiz" in marker else render_answers(answers, 100),
     )
     posted: list[str] = []
-    monkeypatch.setattr("quizz.ghio.pr.post_comment", lambda pr, md: posted.append(md))
+    monkeypatch.setattr("cognit.ghio.pr.post_comment", lambda pr, md: posted.append(md))
     monkeypatch.setattr(
-        "quizz.cli.grade._make_llm",
+        "cognit.cli.grade._make_llm",
         lambda model: FakeLLM(canned_open_score=85, canned_open_feedback="solid"),
     )
     result = runner.invoke(app, ["grade", "--pr", "https://github.com/o/r/pull/42"])
     assert result.exit_code == 0
     assert posted, "expected a results comment to be posted"
-    assert "<!-- quizz:results v1 -->" in posted[0]
+    assert "<!-- cognit:results v1 -->" in posted[0]
     assert "85%" in posted[0] or "solid" in posted[0]
 ```
 
 - [ ] **Step 2: Implement**
 
 ```python
-# src/quizz/cli/grade.py
+# src/cognit/cli/grade.py
 import typer
-from quizz.comment.parse import parse_quiz, parse_answers
-from quizz.comment.render import render_results
-from quizz.engine.grade import grade
-from quizz.engine.llm import LLMClient
-from quizz.engine.llm_githubmodels import GitHubModelsLLM
-from quizz.ghio.pr import find_latest_marker_comment, post_comment
+from cognit.comment.parse import parse_quiz, parse_answers
+from cognit.comment.render import render_results
+from cognit.engine.grade import grade
+from cognit.engine.llm import LLMClient
+from cognit.engine.llm_githubmodels import GitHubModelsLLM
+from cognit.ghio.pr import find_latest_marker_comment, post_comment
 
 
 def _make_llm(model: str) -> LLMClient:
@@ -2477,8 +2477,8 @@ def _make_llm(model: str) -> LLMClient:
 
 
 def run(pr: str, model: str = "gpt-4o-mini") -> None:
-    quiz_md = find_latest_marker_comment(pr, "<!-- quizz:quiz v1 -->")
-    answers_md = find_latest_marker_comment(pr, "<!-- quizz:answers v1 -->")
+    quiz_md = find_latest_marker_comment(pr, "<!-- cognit:quiz v1 -->")
+    answers_md = find_latest_marker_comment(pr, "<!-- cognit:answers v1 -->")
     if not (quiz_md and answers_md):
         typer.echo("missing quiz or answers comment — nothing to grade.")
         return
@@ -2490,8 +2490,8 @@ def run(pr: str, model: str = "gpt-4o-mini") -> None:
 ```
 
 ```python
-# src/quizz/cli/__init__.py  (replace stub `grade`)
-from quizz.cli import grade as _grade
+# src/cognit/cli/__init__.py  (replace stub `grade`)
+from cognit.cli import grade as _grade
 
 @app.command()
 def grade(
@@ -2506,20 +2506,20 @@ def grade(
 
 ```bash
 uv run pytest tests/cli/test_grade.py -v
-git add src/quizz/cli/
-git commit -m "feat(cli): quizz grade orchestrates engine + comment + ghio"
+git add src/cognit/cli/
+git commit -m "feat(cli): cognit grade orchestrates engine + comment + ghio"
 ```
 
 ### Task M6.2: Grader Composite action + example listener workflow
 
 **Files:**
-- Create: `actions/quizz-grade/action.yml`, `.github/examples/quizz-grade.yml`
+- Create: `actions/cognit-grade/action.yml`, `.github/examples/cognit-grade.yml`
 
 - [ ] **Step 1: Write the Composite Action**
 
 ```yaml
-# actions/quizz-grade/action.yml
-name: "Quizz Grade"
+# actions/cognit-grade/action.yml
+name: "Cognit Grade"
 description: "Grade submitted answers comment and post results."
 
 inputs:
@@ -2533,12 +2533,12 @@ runs:
   steps:
     - uses: astral-sh/setup-uv@v3
     - shell: bash
-      run: uv tool install "quizz==${{ inputs.version }}"
+      run: uv tool install "cognit==${{ inputs.version }}"
     - shell: bash
       env:
         GITHUB_TOKEN: ${{ env.GITHUB_TOKEN }}
       run: |
-        quizz grade \
+        cognit grade \
           --pr "${{ github.event.issue.pull_request.url || github.event.issue.html_url }}" \
           --model "${{ inputs.model }}"
 ```
@@ -2546,8 +2546,8 @@ runs:
 - [ ] **Step 2: Write the listener workflow**
 
 ```yaml
-# .github/examples/quizz-grade.yml
-name: Quizz — grade
+# .github/examples/cognit-grade.yml
+name: Cognit — grade
 on:
   issue_comment:
     types: [created]
@@ -2562,26 +2562,26 @@ jobs:
   grade:
     if: >
       github.event.issue.pull_request &&
-      contains(github.event.comment.body, '<!-- quizz:answers v1 -->') &&
+      contains(github.event.comment.body, '<!-- cognit:answers v1 -->') &&
       github.event.comment.user.login == github.event.issue.user.login
     runs-on: ubuntu-latest
     steps:
-      - uses: <your-org>/quizz/actions/quizz-grade@v1
+      - uses: <your-org>/cognit/actions/cognit-grade@v1
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add actions/quizz-grade/ .github/examples/quizz-grade.yml
+git add actions/cognit-grade/ .github/examples/cognit-grade.yml
 git commit -m "feat(actions): grader Composite Action + listener workflow"
 ```
 
 ### Task M6.3: End-to-end manual test on sandbox repo
 
 - [ ] **Step 1: Add both example workflows to a sandbox repo, install both Actions**
-- [ ] **Step 2: Open a PR; watch the quiz comment appear; run `quizz take`; submit**
+- [ ] **Step 2: Open a PR; watch the quiz comment appear; run `cognit take`; submit**
 - [ ] **Step 3: Watch the answers comment trigger the grader; verify results comment**
-- [ ] **Step 4: Verify polling in `quizz take` displays the results**
+- [ ] **Step 4: Verify polling in `cognit take` displays the results**
 
 ---
 
@@ -2595,7 +2595,7 @@ git commit -m "feat(actions): grader Composite Action + listener workflow"
 - [ ] **Step 1: Write the README**
 
 ````markdown
-# quizz
+# cognit
 
 > Voluntary, opt-in PR-author comprehension quizzes. Surface the gap between what you think your code does and what it actually does — before you merge.
 
@@ -2603,7 +2603,7 @@ git commit -m "feat(actions): grader Composite Action + listener workflow"
 
 A GitHub-friendly tool that quizzes the **author** of a PR (not the reviewer) on the code they're about to merge. Three pieces:
 - A **generator GitHub Action** that posts a quiz comment when you open a PR.
-- A **CLI** (`quizz take`) that opens the quiz in your local browser.
+- A **CLI** (`cognit take`) that opens the quiz in your local browser.
 - A **grader GitHub Action** that scores your submitted answers and posts results.
 
 Like CI checks, linters, or pre-commit hooks: opt-in. Failing doesn't block merge — the value is the "aha" when you got something wrong.
@@ -2613,18 +2613,18 @@ Like CI checks, linters, or pre-commit hooks: opt-in. Failing doesn't block merg
 ### 1. Install the CLI
 
 ```bash
-pipx install quizz
+pipx install cognit
 # or
-uv tool install quizz
+uv tool install cognit
 ```
 
 ### 2. Add the two workflows to your repo
 
-Copy `.github/examples/quizz-generate.yml` and `.github/examples/quizz-grade.yml` into your repo's `.github/workflows/`.
+Copy `.github/examples/cognit-generate.yml` and `.github/examples/cognit-grade.yml` into your repo's `.github/workflows/`.
 
 ### 3. Open a PR
 
-The generator runs, posts a quiz comment. Run `quizz take` to take it.
+The generator runs, posts a quiz comment. Run `cognit take` to take it.
 
 ## Status
 
@@ -2719,7 +2719,7 @@ SOFTWARE.
 
 ### Added
 - Generator GitHub Action: posts a quiz comment on PR open/sync.
-- `quizz take` CLI: takes the quiz in a local browser.
+- `cognit take` CLI: takes the quiz in a local browser.
 - Grader GitHub Action: LLM-grades open questions, posts results.
 - Question types: MCQ, mermaid-diagram-pick, open, true/false.
 ```
@@ -2746,10 +2746,10 @@ git push origin v0.1.0
 - [ ] **Step 5: Test fresh install on a clean machine**
 
 ```bash
-pipx install quizz
-quizz --version
+pipx install cognit
+cognit --version
 ```
-Expected: `quizz 0.1.0`.
+Expected: `cognit 0.1.0`.
 
 - [ ] **Step 6: Submit Actions to GitHub Marketplace**
 

@@ -8,10 +8,10 @@ import typer
 from anthropic import APIError as AnthropicAPIError
 from typer.testing import CliRunner
 
-from quizz.cli import app
-from quizz.engine.llm_fake import FakeLLM
-from quizz.engine.models import MCQQuestion, QuizOutline
-from quizz.ghio.pr import PRInfo
+from cognit.cli import app
+from cognit.engine.llm_fake import FakeLLM
+from cognit.engine.models import MCQQuestion, QuizOutline
+from cognit.ghio.pr import PRInfo
 
 runner = CliRunner()
 
@@ -33,20 +33,20 @@ def _fake_llm_with_outline() -> FakeLLM:
 def _cache_path(pr_url: str) -> Path:
     """Mirror of cli.take._cache_path_for, used to clean up in tests."""
     digest = hashlib.sha1(pr_url.encode("utf-8")).hexdigest()[:16]
-    return Path(tempfile.gettempdir()) / "quizz" / f"{digest}.json"
+    return Path(tempfile.gettempdir()) / "cognit" / f"{digest}.json"
 
 
 @pytest.fixture(autouse=True)
 def _clean_cache() -> None:
-    """Each test gets a fresh cache. Cleans up any leftover files in $TMPDIR/quizz/."""
-    cache_dir = Path(tempfile.gettempdir()) / "quizz"
+    """Each test gets a fresh cache. Cleans up any leftover files in $TMPDIR/cognit/."""
+    cache_dir = Path(tempfile.gettempdir()) / "cognit"
     if cache_dir.exists():
         for f in cache_dir.glob("*.json"):
             f.unlink(missing_ok=True)
 
 
 def test_take_errors_when_no_pr(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("quizz.cli.take._detect_pr_from_branch", lambda: None)
+    monkeypatch.setattr("cognit.cli.take._detect_pr_from_branch", lambda: None)
     result = runner.invoke(app, ["take"])
     assert result.exit_code != 0
     assert "no pr" in result.stdout.lower()
@@ -54,17 +54,17 @@ def test_take_errors_when_no_pr(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_take_auto_detects(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "quizz.cli.take._detect_pr_from_branch",
+        "cognit.cli.take._detect_pr_from_branch",
         lambda: "https://github.com/o/r/pull/42",
     )
     captured: dict[str, object] = {}
     monkeypatch.setattr(
-        "quizz.cli.take._run_take_flow",
+        "cognit.cli.take._run_take_flow",
         lambda pr_url, show_results_only, llm, **kw: captured.update(
             {"pr": pr_url, "show": show_results_only, "llm": llm, **kw}
         ),
     )
-    monkeypatch.setattr("quizz.cli.take._make_llm", lambda model: _fake_llm())
+    monkeypatch.setattr("cognit.cli.take._make_llm", lambda model: _fake_llm())
     result = runner.invoke(app, ["take"])
     assert result.exit_code == 0, result.stdout
     assert captured["pr"] == "https://github.com/o/r/pull/42"
@@ -73,20 +73,20 @@ def test_take_auto_detects(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_take_generates_and_does_not_post_to_pr(monkeypatch: pytest.MonkeyPatch) -> None:
     """Auto-generation must NOT post the quiz to the PR. The quiz lives in memory + cache."""
-    from quizz.cli.take import _run_take_flow
+    from cognit.cli.take import _run_take_flow
 
     pr_url = "https://github.com/o/r/pull/42"
     monkeypatch.setattr(
-        "quizz.cli.take.fetch_pr_info",
+        "cognit.cli.take.fetch_pr_info",
         lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "quizz.cli.take.fetch_diff_and_files",
+        "cognit.cli.take.fetch_diff_and_files",
         lambda pr, fetch_file_contents=None: ("diffstr\n" * 100, {}),
     )
     posted: list[str] = []
     monkeypatch.setattr(
-        "quizz.cli.take.post_comment",
+        "cognit.cli.take.post_comment",
         lambda pr, md: posted.append(md) or "https://x/y#1",
     )
     served: dict[str, object] = {}
@@ -95,7 +95,7 @@ def test_take_generates_and_does_not_post_to_pr(monkeypatch: pytest.MonkeyPatch)
         served["quiz"] = quiz_
         served["pr_url"] = pr_url_
 
-    monkeypatch.setattr("quizz.cli.take._serve_blocking", fake_serve)
+    monkeypatch.setattr("cognit.cli.take._serve_blocking", fake_serve)
 
     _run_take_flow(pr_url, show_results_only=False, llm=_fake_llm_with_outline())
 
@@ -108,21 +108,21 @@ def test_take_generates_and_does_not_post_to_pr(monkeypatch: pytest.MonkeyPatch)
 
 def test_take_reuses_cache_on_second_run(monkeypatch: pytest.MonkeyPatch) -> None:
     """Second invocation against the same PR should reuse the cached quiz, no LLM call."""
-    from quizz.cli.take import _run_take_flow
+    from cognit.cli.take import _run_take_flow
 
     pr_url = "https://github.com/o/r/pull/42"
 
     # First run: generate and cache.
     monkeypatch.setattr(
-        "quizz.cli.take.fetch_pr_info",
+        "cognit.cli.take.fetch_pr_info",
         lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "quizz.cli.take.fetch_diff_and_files",
+        "cognit.cli.take.fetch_diff_and_files",
         lambda pr, fetch_file_contents=None: ("diffstr\n" * 100, {}),
     )
-    monkeypatch.setattr("quizz.cli.take.post_comment", lambda pr, md: "https://x/y#1")
-    monkeypatch.setattr("quizz.cli.take._serve_blocking", lambda *a, **k: None)
+    monkeypatch.setattr("cognit.cli.take.post_comment", lambda pr, md: "https://x/y#1")
+    monkeypatch.setattr("cognit.cli.take._serve_blocking", lambda *a, **k: None)
 
     _run_take_flow(pr_url, show_results_only=False, llm=_fake_llm_with_outline())
     assert _cache_path(pr_url).exists()
@@ -131,16 +131,16 @@ def test_take_reuses_cache_on_second_run(monkeypatch: pytest.MonkeyPatch) -> Non
     def boom(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise AssertionError("should not be called on cache hit")
 
-    monkeypatch.setattr("quizz.cli.take.fetch_pr_info", boom)
-    monkeypatch.setattr("quizz.cli.take.fetch_diff_and_files", boom)
+    monkeypatch.setattr("cognit.cli.take.fetch_pr_info", boom)
+    monkeypatch.setattr("cognit.cli.take.fetch_diff_and_files", boom)
 
     _run_take_flow(pr_url, show_results_only=False, llm=_fake_llm_with_outline())
 
 
 def test_take_show_results_when_no_results_yet(monkeypatch: pytest.MonkeyPatch) -> None:
-    from quizz.cli.take import _run_take_flow
+    from cognit.cli.take import _run_take_flow
 
-    monkeypatch.setattr("quizz.cli.take.find_latest_marker_comment", lambda pr, marker: None)
+    monkeypatch.setattr("cognit.cli.take.find_latest_marker_comment", lambda pr, marker: None)
 
     with pytest.raises(typer.Exit) as exc_info:
         _run_take_flow("https://github.com/o/r/pull/42", show_results_only=True, llm=_fake_llm())
@@ -148,21 +148,21 @@ def test_take_show_results_when_no_results_yet(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_take_skips_small_diff(monkeypatch: pytest.MonkeyPatch) -> None:
-    from quizz.cli.take import _run_take_flow
+    from cognit.cli.take import _run_take_flow
 
     monkeypatch.setattr(
-        "quizz.cli.take.fetch_pr_info",
+        "cognit.cli.take.fetch_pr_info",
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "quizz.cli.take.fetch_diff_and_files",
+        "cognit.cli.take.fetch_diff_and_files",
         lambda pr, fetch_file_contents=None: ("only one line\n", {}),
     )
 
     def fail_serve(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise AssertionError("should not serve when diff is too small")
 
-    monkeypatch.setattr("quizz.cli.take._serve_blocking", fail_serve)
+    monkeypatch.setattr("cognit.cli.take._serve_blocking", fail_serve)
 
     _run_take_flow(
         "https://github.com/o/r/pull/1", show_results_only=False, llm=_fake_llm_with_outline()
@@ -172,21 +172,21 @@ def test_take_skips_small_diff(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_take_respects_quiz_skip_in_body(monkeypatch: pytest.MonkeyPatch) -> None:
-    from quizz.cli.take import _run_take_flow
+    from cognit.cli.take import _run_take_flow
 
     monkeypatch.setattr(
-        "quizz.cli.take.fetch_pr_info",
+        "cognit.cli.take.fetch_pr_info",
         lambda pr: PRInfo(1, "t", "quiz: skip\n\nThis PR ...", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "quizz.cli.take.fetch_diff_and_files",
+        "cognit.cli.take.fetch_diff_and_files",
         lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
     )
 
     def fail_serve(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise AssertionError("should not serve when quiz: skip is in body")
 
-    monkeypatch.setattr("quizz.cli.take._serve_blocking", fail_serve)
+    monkeypatch.setattr("cognit.cli.take._serve_blocking", fail_serve)
 
     _run_take_flow(
         "https://github.com/o/r/pull/1", show_results_only=False, llm=_fake_llm_with_outline()
@@ -195,7 +195,7 @@ def test_take_respects_quiz_skip_in_body(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_take_handles_llm_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """LLM failure during auto-generation should exit 1 with a friendly message."""
-    from quizz.cli.take import _run_take_flow
+    from cognit.cli.take import _run_take_flow
 
     class BoomLLM:
         def generate_quiz_outline(self, req):  # type: ignore[no-untyped-def]
@@ -212,11 +212,11 @@ def test_take_handles_llm_failure(monkeypatch: pytest.MonkeyPatch) -> None:
             return (0, "")
 
     monkeypatch.setattr(
-        "quizz.cli.take.fetch_pr_info",
+        "cognit.cli.take.fetch_pr_info",
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "quizz.cli.take.fetch_diff_and_files",
+        "cognit.cli.take.fetch_diff_and_files",
         lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
     )
 
@@ -231,7 +231,7 @@ def test_take_handles_llm_failure(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_take_handles_runtime_error_from_agent(monkeypatch: pytest.MonkeyPatch) -> None:
     """ClaudeAgentLLM maps SDK errors to RuntimeError; take.py must exit 1 with a message."""
-    from quizz.cli.take import _run_take_flow
+    from cognit.cli.take import _run_take_flow
 
     class BoomLLM:
         def generate_quiz_outline(self, req):  # type: ignore[no-untyped-def]
@@ -243,13 +243,13 @@ def test_take_handles_runtime_error_from_agent(monkeypatch: pytest.MonkeyPatch) 
         def grade_open(self, *args):  # type: ignore[no-untyped-def]
             return (0, "")
 
-    monkeypatch.setattr("quizz.cli.take.find_latest_marker_comment", lambda pr, marker: None)
+    monkeypatch.setattr("cognit.cli.take.find_latest_marker_comment", lambda pr, marker: None)
     monkeypatch.setattr(
-        "quizz.cli.take.fetch_pr_info",
+        "cognit.cli.take.fetch_pr_info",
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "quizz.cli.take.fetch_diff_and_files",
+        "cognit.cli.take.fetch_diff_and_files",
         lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
     )
 

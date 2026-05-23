@@ -5,7 +5,7 @@ Two layers of mocking:
     plumbing is the same for every method (the per-method tests only care
     about which schema and prompts get passed).
   - `claude_agent_sdk.query` (via the module-level import in
-    `quizz.engine.llm_claude_agent`) for end-to-end tests of `_invoke_tool`.
+    `cognit.engine.llm_claude_agent`) for end-to-end tests of `_invoke_tool`.
 """
 
 from __future__ import annotations
@@ -17,9 +17,9 @@ import pytest
 
 from claude_agent_sdk import CLINotFoundError
 
-from quizz.engine.llm import GenerateRequest
-from quizz.engine.llm_claude_agent import ClaudeAgentLLM
-from quizz.engine.models import MCQQuestion, MermaidSet, MermaidSpec, QuizOutline
+from cognit.engine.llm import GenerateRequest
+from cognit.engine.llm_claude_agent import ClaudeAgentLLM
+from cognit.engine.models import MCQQuestion, MermaidSet, MermaidSpec, QuizOutline
 
 
 def _make_drain_that_calls_handler(args: dict[str, Any]) -> Any:
@@ -102,8 +102,8 @@ def test_invoke_tool_builds_options_correctly(monkeypatch: pytest.MonkeyPatch) -
     opts = captured_options[0]
     assert opts.system_prompt == "my-system"
     assert opts.model == "claude-opus-4-7"
-    assert opts.allowed_tools == ["mcp__quizz__my_tool"]
-    assert "quizz" in opts.mcp_servers
+    assert opts.allowed_tools == ["mcp__cognit__my_tool"]
+    assert "cognit" in opts.mcp_servers
     assert opts.permission_mode == "bypassPermissions"
 
 

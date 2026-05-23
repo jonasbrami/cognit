@@ -2,7 +2,7 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
-from quizz.engine.models import MermaidSet, MermaidSpec, QuizOutline
+from cognit.engine.models import MermaidSet, MermaidSpec, QuizOutline
 
 
 class GenerateRequest(BaseModel):

@@ -8,9 +8,9 @@ import pytest
 import uvicorn
 from fastapi import FastAPI
 
-from quizz.engine.llm_fake import FakeLLM
-from quizz.engine.models import MCQQuestion, MermaidQuestion, OpenQuestion, Quiz, TrueFalseQuestion
-from quizz.server.app import build_app
+from cognit.engine.llm_fake import FakeLLM
+from cognit.engine.models import MCQQuestion, MermaidQuestion, OpenQuestion, Quiz, TrueFalseQuestion
+from cognit.server.app import build_app
 
 
 def _free_port() -> int:
@@ -81,11 +81,11 @@ def live_server(sample_quiz: Quiz) -> Iterator[tuple[str, list[str]]]:
 
     def fake_post(body: str) -> str:
         posted.append(body)
-        return "https://github.com/jonas/quizz/pull/142#issuecomment-9999"
+        return "https://github.com/jonas/cognit/pull/142#issuecomment-9999"
 
     app = build_app(
         quiz=sample_quiz,
-        pr_url="https://github.com/jonas/quizz/pull/142",
+        pr_url="https://github.com/jonas/cognit/pull/142",
         llm=FakeLLM(canned_open_score=80, canned_open_feedback="reasonable"),
         post_comment=fake_post,
     )

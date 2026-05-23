@@ -33,12 +33,12 @@ One CLI command. The PR thread carries only the (opt-in) results comment — the
 
 ```
 ┌────────────────────────────────────┐
-│  `quizz take` (CLI, local)         │
+│  `cognit take` (CLI, local)         │
 │                                    │
 │  1. detect PR from current branch  │
 │  2. cache hit?                     │
-│     yes → load Quiz from           │ ──── reads ──► $TMPDIR/quizz/<sha1>.json
-│             $TMPDIR/quizz/...      │ ◄─── writes ──
+│     yes → load Quiz from           │ ──── reads ──► $TMPDIR/cognit/<sha1>.json
+│             $TMPDIR/cognit/...      │ ◄─── writes ──
 │     no  → fetch diff, call LLM,    │
 │             write Quiz to cache    │
 │  3. open browser UI                │
@@ -59,18 +59,18 @@ One CLI command. The PR thread carries only the (opt-in) results comment — the
                                                    └──────────────────────────────┘
 ```
 
-The PR thread carries **at most one comment** per take session, and only if the author chose to publish. The quiz itself lives in memory + an ephemeral local cache (`$TMPDIR/quizz/`) — no quiz comment, no answer key visible on the PR by default. The results comment is self-contained (question prompts + author answers inlined) so reviewers reading the PR don't need a separate quiz comment to cross-reference.
+The PR thread carries **at most one comment** per take session, and only if the author chose to publish. The quiz itself lives in memory + an ephemeral local cache (`$TMPDIR/cognit/`) — no quiz comment, no answer key visible on the PR by default. The results comment is self-contained (question prompts + author answers inlined) so reviewers reading the PR don't need a separate quiz comment to cross-reference.
 
 ## Components
 
-### `quizz take` CLI
+### `cognit take` CLI
 
 - Auth: uses local `gh auth login` for PR I/O. LLM auth via Claude Code OAuth (`~/.claude/.credentials.json`) or `ANTHROPIC_API_KEY`. Anthropic is the only supported provider in v1.
-- Invocation: `quizz take [--pr <url-or-number>] [--model <name>] [--min-diff-lines N] [--max-diff-lines N]`. Auto-detects PR from current branch.
+- Invocation: `cognit take [--pr <url-or-number>] [--model <name>] [--min-diff-lines N] [--max-diff-lines N]`. Auto-detects PR from current branch.
 - Steps:
   1. Detect the PR for the current branch via `gh pr view --json url`. (Skipped when `--pr` is passed.)
   2. **Get the Quiz** — local cache first, else generate fresh:
-     - Cache path: `$TMPDIR/quizz/<sha1(pr_url)[:16]>.json`. If present, deserialize and skip to step 3.
+     - Cache path: `$TMPDIR/cognit/<sha1(pr_url)[:16]>.json`. If present, deserialize and skip to step 3.
      - Otherwise: fetch PR title, body via `gh pr view`; diff via `gh pr diff`; touched-file contents via `git show HEAD:<path>`. Skip if diff < `--min-diff-lines` (default 50), > `--max-diff-lines` (default 2000), or if PR body contains `quiz: skip`.
      - Call the LLM with a prompt that asks it to **decide both the count and the type-mix** based on diff size and complexity. A typo fix gets 2–3 probes; a 500-line refactor with new abstractions might warrant 8 or more. Question types: `mcq` (facts/invariants), `mermaid` (control or data flow — generated as 1 correct + 3 plausible-but-wrong variants in uniform style), `open` (LLM-graded against a rubric), `tf` (subtle behavioral claims).
      - Validate mermaid diagrams with `@mermaid-js/mermaid-cli` parse pass (skip silently if not installed); retry per-question on failure (max 2 retries); drop mermaid Q as last resort.
@@ -90,23 +90,23 @@ The PR thread carries **at most one comment** per take session, and only if the 
      - Requires that `/submit` ran first in this session; otherwise responds 400.
 - Stays alive until the user closes the browser tab or hits Ctrl-C.
 
-**One command, one diagnostic.** `quizz generate` and `quizz grade` existed in earlier versions as separate CLI commands; both were collapsed into `take` once it became clear that the only happy-path use case is the author running a single command after opening their PR. The engine layer (`engine/generate.py`, `engine/grade.py`) is still standalone — a future GitHub App or webhook receiver can call into it without going through the CLI.
+**One command, one diagnostic.** `cognit generate` and `cognit grade` existed in earlier versions as separate CLI commands; both were collapsed into `take` once it became clear that the only happy-path use case is the author running a single command after opening their PR. The engine layer (`engine/generate.py`, `engine/grade.py`) is still standalone — a future GitHub App or webhook receiver can call into it without going through the CLI.
 
-**No quiz on the PR thread.** Earlier versions posted the quiz as a PR comment with marker `<!-- quizz:quiz v1 -->` and used the thread as canonical state. After the collapse to one command, that storage stopped being load-bearing — and it carried real costs (answer key visible in plaintext, noise for reviewers, an extra artifact unrelated to code review). The in-memory + ephemeral-cache design keeps recovery working (close the tab, re-run, same quiz, no LLM re-bill) without putting anything on the PR until the author opts in to publish.
+**No quiz on the PR thread.** Earlier versions posted the quiz as a PR comment with marker `<!-- cognit:quiz v1 -->` and used the thread as canonical state. After the collapse to one command, that storage stopped being load-bearing — and it carried real costs (answer key visible in plaintext, noise for reviewers, an extra artifact unrelated to code review). The in-memory + ephemeral-cache design keeps recovery working (close the tab, re-run, same quiz, no LLM re-bill) without putting anything on the PR until the author opts in to publish.
 
 **Publishing is opt-in.** Solo devs can practice in private without leaving a trail; users who want a record click the button.
 
-**Who can run `quizz take`:** anyone with `gh` access to the repo. The CLI doesn't gate by PR-author identity; downstream consumers (you, the human) decide who runs the local CLI.
+**Who can run `cognit take`:** anyone with `gh` access to the repo. The CLI doesn't gate by PR-author identity; downstream consumers (you, the human) decide who runs the local CLI.
 
 ## Quiz comment format
 
 Markdown for humans, JSON code block for the CLI. The answer key is in plaintext on purpose — this is a voluntary self-quiz, and scrolling past your own answer key to cheat is a choice the author makes against their own learning.
 
 ```markdown
-<!-- quizz:quiz v1 -->
+<!-- cognit:quiz v1 -->
 ## Quiz on your PR
 
-Take it in your terminal: `quizz take` (or `quizz take <this PR URL>`).
+Take it in your terminal: `cognit take` (or `cognit take <this PR URL>`).
 Or scroll down and answer in your head — see what you got wrong at the bottom.
 
 ### Question 1 — Multiple choice
@@ -196,12 +196,12 @@ PR-level escape hatches: `quiz: skip` in PR description suppresses generation en
 - **Unit tests** for the LLM adapter using `respx` to mock `api.anthropic.com`. Covers both stages of generation (`generate_quiz_outline` and `generate_mermaid_set`) and `grade_open`, plus assertions on system-prompt + `cache_control` shape.
 - **Unit tests** for the FastAPI server using `TestClient` (covers `/`, `/static/*`, `/submit`, `/publish`).
 - **Playwright end-to-end** (manual, ad hoc): drive the browser through fill → submit → publish against the live PR; screenshot every state. The headless-Chrome `--screenshot` flag is a faster alternative for visual smoke.
-- **CI** (`.github/workflows/ci.yml`): on every push, run `ruff check`, `ruff format --check`, `mypy --strict`, `pytest`, and a CLI install smoke (`quizz --help` etc.).
+- **CI** (`.github/workflows/ci.yml`): on every push, run `ruff check`, `ruff format --check`, `mypy --strict`, `pytest`, and a CLI install smoke (`cognit --help` etc.).
 
 ## Non-goals (for v1)
 
 - No merge blocking. No Check Runs. No branch protection integration. (Opt-in philosophy — the discipline is taking the quiz, not being forced through it.)
-- **No GitHub Action auto-trigger.** Composite Actions wrapping `quizz generate --post` were prototyped end-to-end and dropped — not deferred. The collapse to a single `quizz take` command means there's no separate generation entrypoint to wrap. A future automation surface would call the engine layer directly (webhook receiver, GitHub App).
+- **No GitHub Action auto-trigger.** Composite Actions wrapping `cognit generate --post` were prototyped end-to-end and dropped — not deferred. The collapse to a single `cognit take` command means there's no separate generation entrypoint to wrap. A future automation surface would call the engine layer directly (webhook receiver, GitHub App).
 - No GitHub App / Marketplace listing. No hosted infrastructure. No SaaS.
 - No multi-LLM orchestration. Single provider — Anthropic (Claude SDK).
 - No team-specific knowledge injection (Skills). Single generic prompt for now.
@@ -217,7 +217,7 @@ The Android-session vision points beyond v1. These are real product ambitions, n
 A generation orchestrator that fans out to multiple providers (OpenAI, Anthropic, Gemini, GitHub Models, local models), deduplicates similar questions, and picks a balanced set. **Why it matters:** diversity of perspectives, harder for authors to learn to pattern-match the questions, surfaces a wider range of comprehension gaps. **What it adds:** a generation orchestrator module in the engine, per-provider adapters, deduplication logic, more API keys to manage.
 
 ### Skills integration (team knowledge injection)
-A `.quizz/skills/` directory of markdown files in the repo, loaded into the generation prompt. Teams describe their codebase's invariants, conventions, and architectural choices; the quiz generator uses them to ask questions that reflect the team's reality rather than generic code-comprehension probes. **Why it matters:** this is the real differentiator vs. Gater — questions that know what's idiomatic for *this* codebase, not what's idiomatic in general. **What it adds:** a Skills loader, prompt-engineering work to weave Skills into the generation context, possibly a `quizz skills validate` CLI command.
+A `.cognit/skills/` directory of markdown files in the repo, loaded into the generation prompt. Teams describe their codebase's invariants, conventions, and architectural choices; the quiz generator uses them to ask questions that reflect the team's reality rather than generic code-comprehension probes. **Why it matters:** this is the real differentiator vs. Gater — questions that know what's idiomatic for *this* codebase, not what's idiomatic in general. **What it adds:** a Skills loader, prompt-engineering work to weave Skills into the generation context, possibly a `cognit skills validate` CLI command.
 
 ### GitHub App graduation
 A Marketplace-installable GitHub App that wraps the same engine. Webhook receiver, hosted backend (Cloudflare Workers + D1 most likely), OAuth user identity, hosted SPA quiz UI reusing the same JS as the local CLI's browser view. **Why it matters:** teams that don't want a workflow file in every repo, or want centralized config across many repos. **What it adds:** ~3–4 weeks of plumbing (webhook handler, OAuth flow, DB schema, hosting, Marketplace listing). The engine itself stays the same — that's the whole point of the v1 design principles.

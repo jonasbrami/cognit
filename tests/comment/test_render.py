@@ -1,5 +1,5 @@
-from quizz.comment.render import render_quiz
-from quizz.engine.models import Quiz, MCQQuestion, MermaidQuestion, OpenQuestion, TrueFalseQuestion
+from cognit.comment.render import render_quiz
+from cognit.engine.models import Quiz, MCQQuestion, MermaidQuestion, OpenQuestion, TrueFalseQuestion
 
 
 def _sample_quiz() -> Quiz:
@@ -21,7 +21,7 @@ def _sample_quiz() -> Quiz:
 
 def test_render_includes_marker():
     md = render_quiz(_sample_quiz())
-    assert "<!-- quizz:quiz v1 -->" in md
+    assert "<!-- cognit:quiz v1 -->" in md
 
 
 def test_render_mermaid_uses_code_fence():

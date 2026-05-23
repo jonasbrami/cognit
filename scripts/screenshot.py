@@ -1,13 +1,13 @@
 """Generate README screenshots of the quiz UI.
 
 Boots the FastAPI app with a fixture quiz, drives playwright to capture
-`docs/img/quizz-questions.png` (initial form) and `docs/img/quizz-results.png`
+`docs/img/cognit-questions.png` (initial form) and `docs/img/cognit-results.png`
 (post-submit results view).
 
 Usage:
     uv run python scripts/screenshot.py
 
-Re-run after any UI change in src/quizz/server/assets/.
+Re-run after any UI change in src/cognit/server/assets/.
 """
 
 from __future__ import annotations
@@ -22,15 +22,15 @@ import uvicorn
 from fastapi import FastAPI
 from playwright.sync_api import sync_playwright
 
-from quizz.engine.llm_fake import FakeLLM
-from quizz.engine.models import (
+from cognit.engine.llm_fake import FakeLLM
+from cognit.engine.models import (
     MCQQuestion,
     MermaidQuestion,
     OpenQuestion,
     Quiz,
     TrueFalseQuestion,
 )
-from quizz.server.app import build_app
+from cognit.server.app import build_app
 
 
 OUT_DIR = Path(__file__).resolve().parent.parent / "docs" / "img"
@@ -110,9 +110,9 @@ def main() -> None:
     quiz = _fixture_quiz()
     app = build_app(
         quiz=quiz,
-        pr_url="https://github.com/jonasbrami/quizz/pull/142",
+        pr_url="https://github.com/jonasbrami/cognit/pull/142",
         llm=FakeLLM(canned_open_score=80, canned_open_feedback="Captures the key idea."),
-        post_comment=lambda body: "https://github.com/jonasbrami/quizz/pull/142#issuecomment-9999",
+        post_comment=lambda body: "https://github.com/jonasbrami/cognit/pull/142#issuecomment-9999",
     )
     port = _free_port()
     server = _serve(app, port)
@@ -136,7 +136,7 @@ def main() -> None:
             )
             page.locator("#questions-root .file").nth(3).locator(".tf__cell").nth(1).click()
 
-            questions_path = OUT_DIR / "quizz-questions.png"
+            questions_path = OUT_DIR / "cognit-questions.png"
             page.screenshot(path=str(questions_path), full_page=True)
             print(f"wrote {questions_path}")
 
@@ -147,7 +147,7 @@ def main() -> None:
             page.wait_for_selector("#questions-root .file.ok", timeout=10_000)
             page.evaluate("window.scrollTo(0, 0)")
 
-            results_path = OUT_DIR / "quizz-results.png"
+            results_path = OUT_DIR / "cognit-results.png"
             page.screenshot(path=str(results_path), full_page=True)
             print(f"wrote {results_path}")
 

@@ -1,6 +1,6 @@
-from quizz.engine.llm import GenerateRequest, LLMClient
-from quizz.engine.llm_fake import FakeLLM
-from quizz.engine.models import MCQQuestion, MermaidSet, QuizOutline
+from cognit.engine.llm import GenerateRequest, LLMClient
+from cognit.engine.llm_fake import FakeLLM
+from cognit.engine.models import MCQQuestion, MermaidSet, QuizOutline
 
 
 def test_fake_returns_canned_outline() -> None:
@@ -23,7 +23,7 @@ def test_fake_returns_canned_mermaid_set() -> None:
         correct="A",
     )
     llm = FakeLLM(canned_mermaid=mset)
-    from quizz.engine.models import MermaidSpec
+    from cognit.engine.models import MermaidSpec
 
     out = llm.generate_mermaid_set(
         MermaidSpec(
