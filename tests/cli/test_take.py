@@ -10,6 +10,7 @@ from cognit.cli import app
 from cognit.engine.llm_fake import FakeLLM
 from cognit.engine.models import MCQQuestion, QuizOutline
 from cognit.ghio.pr import PRInfo
+from cognit.server.streaming import Broker
 
 runner = CliRunner()
 
@@ -69,6 +70,25 @@ def test_take_auto_detects(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured["show"] is False
 
 
+def _capturing_serve(served: dict[str, object]):  # type: ignore[no-untyped-def]
+    """Stand-in for `_serve_blocking` that captures args and, on a cache miss,
+    runs the background generation closure inline against a fresh Broker (the
+    real server runs it on a daemon thread)."""
+
+    def fake_serve(  # type: ignore[no-untyped-def]
+        quiz_, pr_url_, llm, post_comment_fn, pr_number=None, on_generate=None
+    ):
+        served["quiz"] = quiz_
+        served["pr_url"] = pr_url_
+        served["on_generate"] = on_generate
+        if on_generate is not None:
+            broker = Broker()
+            on_generate(broker)
+            served["broker"] = broker
+
+    return fake_serve
+
+
 def test_take_generates_and_does_not_post_to_pr(monkeypatch: pytest.MonkeyPatch) -> None:
     """Auto-generation must NOT post the quiz to the PR. The quiz lives in memory + cache."""
     from cognit.cli.take import _run_take_flow
@@ -88,17 +108,13 @@ def test_take_generates_and_does_not_post_to_pr(monkeypatch: pytest.MonkeyPatch)
         lambda pr, md: posted.append(md) or "https://x/y#1",
     )
     served: dict[str, object] = {}
-
-    def fake_serve(quiz_, pr_url_, llm, post_comment_fn):  # type: ignore[no-untyped-def]
-        served["quiz"] = quiz_
-        served["pr_url"] = pr_url_
-
-    monkeypatch.setattr("cognit.cli.take._serve_blocking", fake_serve)
+    monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve(served))
 
     _run_take_flow(pr_url, show_results_only=False, llm=_fake_llm_with_outline())
 
-    # The quiz should have been generated and served, but NEVER posted to the PR.
+    # The quiz should have been generated (broker ready) and served, but NEVER posted.
     assert served["pr_url"] == pr_url
+    assert served["broker"].phase == "ready"  # type: ignore[attr-defined]
     assert posted == [], "auto-generation must not post to the PR thread"
     # Cache file should exist.
     assert _cache_path(pr_url).exists()
@@ -110,7 +126,7 @@ def test_take_reuses_cache_on_second_run(monkeypatch: pytest.MonkeyPatch) -> Non
 
     pr_url = "https://github.com/o/r/pull/42"
 
-    # First run: generate and cache.
+    # First run: generate and cache (the capturing serve runs generation inline).
     monkeypatch.setattr(
         "cognit.cli.take.fetch_pr_info",
         lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
@@ -120,7 +136,7 @@ def test_take_reuses_cache_on_second_run(monkeypatch: pytest.MonkeyPatch) -> Non
         lambda pr: "diffstr\n" * 100,
     )
     monkeypatch.setattr("cognit.cli.take.post_comment", lambda pr, md: "https://x/y#1")
-    monkeypatch.setattr("cognit.cli.take._serve_blocking", lambda *a, **k: None)
+    monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve({}))
 
     _run_take_flow(pr_url, show_results_only=False, llm=_fake_llm_with_outline())
     assert _cache_path(pr_url).exists()
@@ -131,8 +147,13 @@ def test_take_reuses_cache_on_second_run(monkeypatch: pytest.MonkeyPatch) -> Non
 
     monkeypatch.setattr("cognit.cli.take.fetch_pr_info", boom)
     monkeypatch.setattr("cognit.cli.take.fetch_pr_diff", boom)
+    served2: dict[str, object] = {}
+    monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve(served2))
 
     _run_take_flow(pr_url, show_results_only=False, llm=_fake_llm_with_outline())
+    # Cache hit: a ready quiz is served directly, no background generation.
+    assert served2["on_generate"] is None
+    assert served2["quiz"] is not None
 
 
 def test_take_show_results_when_no_results_yet(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -191,8 +212,9 @@ def test_take_respects_quiz_skip_in_body(monkeypatch: pytest.MonkeyPatch) -> Non
     )
 
 
-def test_take_handles_malformed_quiz(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A malformed outline (pydantic ValidationError) during auto-generation exits 1."""
+def test_take_surfaces_malformed_quiz_as_error_phase(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A malformed outline (pydantic ValidationError) during streamed generation flips the
+    broker to phase=error (shown as an in-browser panel) rather than exiting."""
     from cognit.cli.take import _run_take_flow
 
     class BoomLLM:
@@ -215,18 +237,25 @@ def test_take_handles_malformed_quiz(monkeypatch: pytest.MonkeyPatch) -> None:
         "cognit.cli.take.fetch_pr_diff",
         lambda pr: "a\n" * 100,
     )
+    served: dict[str, object] = {}
+    monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve(served))
 
-    with pytest.raises(typer.Exit) as exc_info:
-        _run_take_flow(
-            "https://github.com/o/r/pull/1",
-            show_results_only=False,
-            llm=BoomLLM(),  # type: ignore[arg-type]
-        )
-    assert exc_info.value.exit_code == 1
+    _run_take_flow(
+        "https://github.com/o/r/pull/1",
+        show_results_only=False,
+        llm=BoomLLM(),  # type: ignore[arg-type]
+    )
+    assert served["broker"].phase == "error"  # type: ignore[attr-defined]
+    # The validation failure is surfaced to the browser via the broker (non-empty message).
+    assert served["broker"].error  # type: ignore[attr-defined]
+    # A failed generation must not be cached.
+    assert not _cache_path("https://github.com/o/r/pull/1").exists()
 
 
-def test_take_handles_runtime_error_from_agent(monkeypatch: pytest.MonkeyPatch) -> None:
-    """ClaudeAgentLLM maps SDK errors to RuntimeError; take.py must exit 1 with a message."""
+def test_take_surfaces_runtime_error_from_agent_as_error_phase(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ClaudeAgentLLM maps SDK errors to RuntimeError; generation surfaces it as phase=error."""
     from cognit.cli.take import _run_take_flow
 
     class BoomLLM:
@@ -248,11 +277,13 @@ def test_take_handles_runtime_error_from_agent(monkeypatch: pytest.MonkeyPatch) 
         "cognit.cli.take.fetch_pr_diff",
         lambda pr: "a\n" * 100,
     )
+    served: dict[str, object] = {}
+    monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve(served))
 
-    with pytest.raises(typer.Exit) as exc_info:
-        _run_take_flow(
-            "https://github.com/o/r/pull/1",
-            show_results_only=False,
-            llm=BoomLLM(),  # type: ignore[arg-type]
-        )
-    assert exc_info.value.exit_code == 1
+    _run_take_flow(
+        "https://github.com/o/r/pull/1",
+        show_results_only=False,
+        llm=BoomLLM(),  # type: ignore[arg-type]
+    )
+    assert served["broker"].phase == "error"  # type: ignore[attr-defined]
+    assert "claude binary not found" in served["broker"].error  # type: ignore[attr-defined]

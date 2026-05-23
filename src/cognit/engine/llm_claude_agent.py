@@ -30,11 +30,14 @@ from importlib import resources
 from typing import Any
 
 from claude_agent_sdk import (
+    AssistantMessage,
     ClaudeAgentOptions,
     ClaudeSDKError,
     CLIConnectionError,
     CLINotFoundError,
     ProcessError,
+    TextBlock,
+    ToolUseBlock,
     create_sdk_mcp_server,
     query,
     tool,
@@ -88,6 +91,13 @@ def _repo_root() -> str:
 class ClaudeAgentLLM:
     def __init__(self, model: str = "claude-sonnet-4-6") -> None:
         self._model = model
+        # Optional activity sink. When set (by `cognit take` during streamed
+        # generation/grading), `_drain_agent` forwards Claude's text and tool
+        # calls here instead of discarding them. Kept off the LLMClient Protocol —
+        # only this adapter emits activity; other implementers (the test FakeLLM)
+        # just never set it.
+        self.on_event: Callable[[dict[str, Any]], None] | None = None
+        self._current_tool: str = ""
 
     def _run_agent(
         self,
@@ -148,6 +158,12 @@ class ClaudeAgentLLM:
         """
         captured: list[dict[str, Any]] = []
 
+        # Tag every activity event from this invocation with its tool, and
+        # announce the phase start so the feed reads "generating outline" etc.
+        self._current_tool = tool_name
+        if self.on_event is not None:
+            self.on_event({"kind": "step", "tool": tool_name})
+
         async def handler(args: dict[str, Any]) -> dict[str, Any]:
             captured.append(args)
             return {"content": [{"type": "text", "text": "ok"}]}
@@ -187,10 +203,25 @@ class ClaudeAgentLLM:
         del handler  # production-side: handler is fired by the SDK, not by us
 
         async def _drain() -> None:
-            async for _ in query(prompt=prompt, options=options):
-                pass
+            async for msg in query(prompt=prompt, options=options):
+                self._forward_activity(msg)
 
         asyncio.run(_drain())
+
+    def _forward_activity(self, msg: Any) -> None:
+        """Forward an assistant message's text + tool calls to `self.on_event`.
+
+        No-op unless a sink is attached. Thinking blocks, tool results, and
+        non-assistant messages (results/system) are intentionally ignored — the
+        feed shows what Claude says and which tools it runs, not its reasoning.
+        """
+        if self.on_event is None or not isinstance(msg, AssistantMessage):
+            return
+        for block in msg.content:
+            if isinstance(block, TextBlock):
+                self.on_event({"kind": "text", "text": block.text, "tool": self._current_tool})
+            elif isinstance(block, ToolUseBlock):
+                self.on_event({"kind": "tool_use", "name": block.name, "tool": self._current_tool})
 
     def generate_quiz_outline(self, req: GenerateRequest) -> QuizOutline:
         """Stage 1 (agentic): the agent fetches the PR diff and reads the working tree
@@ -203,6 +234,12 @@ class ClaudeAgentLLM:
             pr_body=req.pr_body,
         )
         captured: list[dict[str, Any]] = []
+
+        # Announce the phase so the streamed feed labels it (mirrors `_invoke_tool`;
+        # this path drives the SDK directly so it must tag activity itself).
+        self._current_tool = _TOOL_OUTLINE
+        if self.on_event is not None:
+            self.on_event({"kind": "step", "tool": _TOOL_OUTLINE})
 
         async def pr_diff_handler(args: dict[str, Any]) -> dict[str, Any]:
             return {"content": [{"type": "text", "text": fetch_pr_diff(req.pr_url)}]}
