@@ -24,7 +24,7 @@ A local CLI that quizzes the **author** of a pull request (not the reviewer) on 
 | `git` | required | reads files at HEAD for context |
 | A web browser | required | the quiz UI runs at `http://127.0.0.1:<random-port>` |
 | [`claude`](https://docs.claude.com/en/docs/claude-code/overview) CLI (logged in via `claude login`) | optional | enables the OAuth auth path so you don't need an API key |
-| [`@mermaid-js/mermaid-cli`](https://github.com/mermaid-js/mermaid-cli) (`mmdc`) | optional | strict server-side mermaid validation; silently skipped if missing |
+| [`@mermaid-js/mermaid-cli`](https://github.com/mermaid-js/mermaid-cli) (`mmdc`) | optional | fastest path for server-side mermaid validation. If absent, `quizz` falls back to a lazily-built Docker parse-only image, then to a Python regex backstop — see [Mermaid validation](#mermaid-validation). |
 
 ### Install
 
@@ -110,6 +110,20 @@ quizz take [--pr URL] [--model NAME] [--min-diff-lines N] [--max-diff-lines N] [
 | `--show-results` | off | Print the latest results comment as JSON instead of opening the browser. |
 
 **Rate limits** follow whichever auth path you're using: Claude Code subscription limits for OAuth, standard Anthropic API limits for API keys.
+
+## Mermaid validation
+
+The generator produces mermaid-pick questions (four diagrams, one correct). Before a quiz is served, every diagram is validated server-side so a malformed diagram never reaches the browser. `quizz` tries three layers, in order of preference:
+
+1. **`mmdc`** (`npm install -g @mermaid-js/mermaid-cli`) — fastest, no per-call overhead.
+2. **Docker** — if `mmdc` is absent but `docker` is available, `quizz` lazily builds a small parse-only validator image on first use (no Chromium; just `mermaid` + `jsdom`).
+3. **Python regex backstop** — if neither is present, a lightweight check still runs, catching the most common LLM failure modes (missing diagram header, grossly unbalanced brackets, `[/text]` parallelogram traps).
+
+To trace which layer is chosen (and other internal decisions), set `QUIZZ_LOG_LEVEL=DEBUG`:
+
+```bash
+QUIZZ_LOG_LEVEL=DEBUG quizz take
+```
 
 ## Troubleshooting
 
