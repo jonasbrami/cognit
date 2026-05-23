@@ -113,14 +113,13 @@ def build_app(
             # Shouldn't happen — the UI only enables submit once the quiz renders.
             return JSONResponse({"error": "quiz not ready"}, status_code=409)
         # Stream grading activity (open-question LLM calls) into the same feed the
-        # browser is polling. No-op for AnthropicLLM, which never reads on_event.
+        # browser is polling. No-op for adapters that don't read on_event (e.g. FakeLLM).
         setattr(llm, "on_event", broker.emit)
         # Grade EVERYTHING in-session: deterministic (MCQ/mermaid/T/F) + LLM for open Q.
         # `grade()` is sync and (for ClaudeAgentLLM) internally calls
         # `asyncio.run(...)` — which Python forbids from inside a running event
         # loop. Offload to a worker thread so the adapter can drive its own loop
-        # without colliding with uvicorn's. As a bonus this also keeps
-        # AnthropicLLM's blocking HTTP off the event-loop thread.
+        # without colliding with uvicorn's.
         results = await asyncio.to_thread(grade, quiz, answers, llm=llm)
         return JSONResponse(results.model_dump())
 

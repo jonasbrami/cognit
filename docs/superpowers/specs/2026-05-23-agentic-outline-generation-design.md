@@ -1,6 +1,6 @@
 # Design: Agentic outline generation
 
-**Status:** Future work — not implemented. (A minimal stopgap — skipping vendored/minified/lock/binary files in the content blob — shipped first; see `CHANGELOG.md` and `src/cognit/ghio/diff.py:_skip_file_content`.)
+**Status:** Implemented — 2026-05-23. (The vendored/minified/lock/binary denylist in `src/cognit/ghio/diff.py:_skip_file_content` is now reused to filter sections out of the fetched diff, rather than to skip file-content inlining.)
 
 **Date:** 2026-05-23
 
@@ -15,31 +15,32 @@ The diff-injection is a holdover from an **API-first** design: two adapters — 
 Make the **outline** call agentic: the Claude agent inspects the PR with **read-only tools**, pulling only what it needs, instead of receiving a pre-computed diff + every file's contents. Only the outline call changes — `generate_mermaid_set` and `grade_open` already take no diff/files.
 
 Key decisions:
-- **Read-only by construction:** enable built-in `Read`/`Grep`/`Glob` (cannot write or shell) + one read-only MCP tool `pr_diff` (wraps `gh pr diff`). **No raw `Bash`** → no permission-callback/streaming refactor, and no way for the agent to run `gh pr merge`/`git push`.
-- **Tell the agent what to inspect:** pass PR number + branch + title/body in the prompt; run the agent with `cwd` = repo root (already checked out on the PR branch) so it reads the working tree directly. Never pre-read file contents.
+- **Read-only by construction:** pass `tools=["Read","Grep","Glob"]` to restrict which built-in tools are *available* (the real gate — `Bash`/`Write`/`Edit` are simply absent), plus one read-only MCP tool `pr_diff` (wraps `gh pr diff`). **No raw `Bash`** → no permission-callback/streaming refactor, and no way for the agent to run `gh pr merge`/`git push`.
+- **Tell the agent what to inspect:** pass PR number + branch + title/body in the prompt; run the agent with `cwd` = repo root (resolved inside the adapter via `_repo_root()`) so it reads the working tree directly. Never pre-read file contents.
 - **Drop the API-key path:** delete `AnthropicLLM` / the `ANTHROPIC_API_KEY` adapter. OAuth via the `claude` binary becomes the only inference path. (The direct-API adapter physically cannot shell out, so it can't share the agentic mechanism without a separate tool-execution loop — not worth maintaining two paths.)
 
 ## Implementation (file by file)
 
 Do in this order — signatures must agree before it type-checks.
 
-1. **`src/cognit/engine/llm.py` — `GenerateRequest`:** drop `diff` and `files`; add `pr_number: int`, `pr_url: str`, `branch: str`. Keep `pr_title`, `pr_body`, `model`. Protocol method signatures unchanged.
+1. **`src/cognit/engine/llm.py` — `GenerateRequest`:** drop `diff` and `files`; add `pr_number: int`, `pr_url: str`, `branch: str`. Keep `pr_title`, `pr_body`, `model`. No `cwd` field — the agent's `cwd` is resolved inside the adapter (see step 4). Protocol method signatures unchanged.
 
 2. **`src/cognit/engine/generate.py` — `generate_quiz(...)`:** drop `diff=`/`files=` kwargs, add `pr_url=`/`branch=` (`pr_number` is already a param). Update the `GenerateRequest(...)` construction. `req` still flows to mermaid workers (harmless — they ignore PR fields).
 
 3. **`src/cognit/cli/take.py`:**
    - `_make_llm`: always `return ClaudeAgentLLM(model=model)`; drop the `ANTHROPIC_API_KEY` branch + `llm_anthropic` import, and `from anthropic import APIError` + its `except` clause in `_generate_in_memory` (ClaudeAgentLLM maps all errors to `RuntimeError`, already caught).
-   - Diff-size gate stays here but goes cheap: replace `fetch_diff_and_files(...)` with `diff = fetch_pr_diff(pr_url)`, keep `diff.count("\n")` + min/max checks, then **discard** the diff (not passed to the engine — the agent re-fetches via `pr_diff`).
+   - Diff-size gate stays here but goes cheap: replace `fetch_diff_and_files(...)` with `diff = fetch_pr_diff(pr_url)` (which already strips denylisted file sections — see step 5), keep `diff.count("\n")` + min/max checks on the **filtered** diff, then **discard** the diff (not passed to the engine — the agent re-fetches via `pr_diff`).
    - Call `generate_quiz(pr_url=..., pr_title=info.title, pr_body=info.body, pr_number=info.number, branch=info.branch, llm=, model=)`. `info.branch` already comes from `fetch_pr_info` (no extra subprocess).
-   - Resolve the agent `cwd` via `git rev-parse --show-toplevel` (robust if invoked from a subdir).
+   - No `cwd` resolution here; the adapter handles it internally (see step 4).
 
 4. **`src/cognit/engine/llm_claude_agent.py` (core change):**
-   - Extract the shared SDK-driving core into `_run_agent(*, system, user, server, allowed_tools, max_turns, cwd, handler)` that builds `ClaudeAgentOptions(..., allowed_tools=..., max_turns=..., cwd=..., permission_mode="bypassPermissions", setting_sources=[])` and calls `_drain_agent`. **Keep the try/except → `RuntimeError` mapping verbatim** (load-bearing for `take.py` + tests). **Keep `_drain_agent`'s `asyncio.run` body unchanged** (loop-in-loop guard — outline runs only from sync CLI context, never under uvicorn; grading is already offloaded via `asyncio.to_thread` in `server/app.py`).
-   - `_invoke_tool` stays a thin single-tool wrapper (`max_turns=8`, `cwd=None`) → mermaid/grading + their tests untouched.
-   - New agentic `generate_quiz_outline`: register **two** MCP tools on one server — `pr_diff` (no-arg; handler calls `fetch_pr_diff(req.pr_url)`, returns the diff as text) and `submit_quiz_outline` (terminal; handler appends to `captured`). `allowed_tools = ["Read","Grep","Glob","mcp__cognit__pr_diff","mcp__cognit__submit_quiz_outline"]`, `cwd` = repo root, `max_turns = _OUTLINE_MAX_TURNS = 30`. Only the submit handler touches `captured`; after drain, `captured[0]` → `QuizOutline.model_validate(...)`, else `RuntimeError("agent did not call submit_quiz_outline")`. Pass `submit_handler` as the `_drain_agent` seam handler.
+   - Add a `_repo_root()` helper: runs `git rev-parse --show-toplevel`, falling back to `os.getcwd()`. This is the agent `cwd` for the outline path.
+   - Extract the shared SDK-driving core into `_run_agent(*, system, user, server, tools, allowed_tools, max_turns, cwd, handler)` that builds `ClaudeAgentOptions(..., tools=..., allowed_tools=..., max_turns=..., cwd=..., permission_mode="bypassPermissions", setting_sources=[])` and calls `_drain_agent`. **Keep the try/except → `RuntimeError` mapping verbatim** (load-bearing for `take.py` + tests). **Keep `_drain_agent`'s `asyncio.run` body unchanged** (loop-in-loop guard — outline runs only from sync CLI context, never under uvicorn; grading is already offloaded via `asyncio.to_thread` in `server/app.py`).
+   - `_invoke_tool` stays a thin single-tool wrapper (`max_turns=8`, `cwd=None`) but now passes `tools=[]` — disabling all built-in tools so only its single MCP submit tool is reachable → mermaid/grading strictly restricted too.
+   - New agentic `generate_quiz_outline`: register **two** MCP tools on one server — `pr_diff` (no-arg; handler calls `fetch_pr_diff(req.pr_url)`, returns the diff as text) and `submit_quiz_outline` (terminal; handler appends to `captured`). `tools=["Read","Grep","Glob"]`, `allowed_tools=["Read","Grep","Glob","mcp__cognit__pr_diff","mcp__cognit__submit_quiz_outline"]`, `cwd=_repo_root()`, `max_turns=_OUTLINE_MAX_TURNS=30`. Only the submit handler touches `captured`; after drain, `captured[0]` → `QuizOutline.model_validate(...)`, else `RuntimeError("agent did not call submit_quiz_outline")`. Pass `submit_handler` as the `_drain_agent` seam handler.
    - Delete `_format_files_blob` (dead).
 
-5. **`src/cognit/ghio/diff.py`:** add `fetch_pr_diff(pr_url_or_number) -> str` (the `gh pr diff` call, diff text only). Delete `fetch_diff_and_files` and `read_file_at_head` once no caller remains (the agent reads the working tree via `Read`), plus the now-unused `Callable` import and the `_skip_file_content` denylist (subsumed — the agent never bulk-reads files).
+5. **`src/cognit/ghio/diff.py`:** add `fetch_pr_diff(pr_url_or_number) -> str` — runs `gh pr diff`, then walks the resulting text and **drops any `diff --git ...` section whose path matches `_skip_file_content`** (the existing vendored/minified/lock/binary denylist). Delete `fetch_diff_and_files` and `read_file_at_head` once no caller remains, plus the now-unused `Callable` import. **Keep `_skip_file_content` and its denylist constants** — they are now reused here rather than deleted.
 
 6. **Prompts — `src/cognit/engine/prompts/`:**
    - `generate.txt`: remaining placeholders `{pr_number}`, `{branch}`, `{pr_title}`, `{pr_body}`. Instruct the agent to call `pr_diff`, then use `Read`/`Grep`/`Glob` on the working tree pulling only what it needs; **explicitly warn against reading large/minified/vendored files in full**; submit via `submit_quiz_outline`.
@@ -49,7 +50,7 @@ Do in this order — signatures must agree before it type-checks.
 
 8. **Tests:**
    - Delete `test_llm_anthropic.py`. Trim `tests/cli/test_take_select.py` to one test asserting `_make_llm` returns `ClaudeAgentLLM` even with `ANTHROPIC_API_KEY` set.
-   - Update `test_generate.py` (new `generate_quiz(...)` kwargs; `FakeLLM` ignores `req`). `test_llm_claude_agent.py` (rewrite the two outline tests to monkeypatch `_drain_agent`; assert the built `ClaudeAgentOptions` has the 5-entry `allowed_tools`, `cwd` set, `max_turns==30`; new `GenerateRequest` fields). `test_take.py` (swap `fetch_diff_and_files` monkeypatches → `fetch_pr_diff`; rewrite the `AnthropicAPIError` failure test to raise `RuntimeError`; drop dead `anthropic`/`httpx` imports). `test_diff.py` (test `fetch_pr_diff`).
+   - Update `test_generate.py` (new `generate_quiz(...)` kwargs; `FakeLLM` ignores `req`). `test_llm_claude_agent.py` (rewrite the two outline tests to monkeypatch `_drain_agent`; assert the built `ClaudeAgentOptions` has `tools==["Read","Grep","Glob"]`, the 5-entry `allowed_tools`, `cwd` set to repo root, `max_turns==30`; for `_invoke_tool` paths assert `tools==[]`; new `GenerateRequest` fields). `test_take.py` (swap `fetch_diff_and_files` monkeypatches → `fetch_pr_diff`; rewrite the `AnthropicAPIError` failure test to raise `RuntimeError`; drop dead `anthropic`/`httpx` imports). `test_diff.py` (test `fetch_pr_diff`, including that denylisted file sections are stripped).
    - No change (must still pass): `tests/server/test_submit_with_claude_agent.py` — the loop-in-loop grading guard.
    - Add an outline-wiring test: both `pr_diff` + `submit_quiz_outline` registered; canned submit → valid `QuizOutline`.
 
@@ -58,7 +59,9 @@ Do in this order — signatures must agree before it type-checks.
 ## SDK facts (verified)
 
 - `ClaudeAgentOptions` supports `cwd`, `tools`, `allowed_tools`, `disallowed_tools`, `can_use_tool`, etc.
-- Built-in tool names are PascalCase (`Read`, `Grep`, `Glob`, `Bash`) and work in `allowed_tools` alongside `mcp__*` names.
+- Built-in tool names are PascalCase (`Read`, `Grep`, `Glob`, `Bash`) and work in both `tools` and `allowed_tools` alongside `mcp__*` names.
+- **`tools` (→ CLI `--tools`) is the availability control**: `tools=["Read","Grep","Glob"]` limits which built-in tools exist in the session; `tools=[]` disables all built-in tools (maps to `--tools ""`). MCP tools come via `mcp_servers` and are unaffected by `tools`.
+- **`allowed_tools` (→ CLI `--allowedTools`) is auto-approval only**: it suppresses the permission prompt but does *not* restrict availability. Without a `tools` restriction, a `bypassPermissions` session with `allowed_tools=[...]` could still call any built-in tool (e.g. `Bash`, `Write`, `Edit`).
 - `setting_sources=[]` only disables settings files — it does **not** disable built-in tools.
 - A `can_use_tool` permission callback exists but requires streaming mode; the read-only-by-construction tool set avoids needing it.
 
@@ -68,11 +71,13 @@ Do in this order — signatures must agree before it type-checks.
 
 ## Residual risk
 
-`pr_diff` returns the **whole** diff, so a PR that genuinely *modifies* a minified/vendored file can still be large (a one-line minified file = a megabytes-wide diff line). The primary bloat source (pre-reading *all* file contents) is eliminated regardless, and the system prompt discourages reading such files. Follow-up (not v1): truncate or path-filter `pr_diff` output, or skip generated files in the diff itself.
+`fetch_pr_diff` now strips `diff --git` sections for vendored/minified/lock/binary paths via `_skip_file_content`, so the primary bloat sources — bulk file-content inlining AND large generated-file diff sections — are eliminated in v1. The diff-line gate in `take.py` operates on the already-filtered diff.
+
+Remaining residual risk: a genuinely large change to a *non-denylisted* source file (e.g. an auto-generated protobuf file not in the denylist) could still produce a wide diff. Mitigated by the min/max diff-line gate (which counts the filtered diff) and the system prompt telling the agent to read files selectively rather than in full.
 
 ## Verification
 
 1. `uv run ruff check . && uv run ruff format --check . && uv run mypy`.
 2. `uv run pytest -q` — engine/cli/ghio/agent tests + the loop-in-loop guard.
 3. Grep for stragglers: `fetch_diff_and_files`, `read_file_at_head`, `AnthropicLLM`, `llm_anthropic`, `_format_files_blob`, `ANTHROPIC_API_KEY`, `{files}`, `{diff}` → none in `src/`.
-4. End-to-end (`claude login` + `gh auth`): `cognit take --pr <small PR>`; with `COGNIT_LOG_LEVEL=DEBUG` confirm the agent makes `pr_diff`/`Read` calls, quiz opens, grading + publish work. **Acceptance:** run against a PR touching a large/minified file and confirm the outline call no longer fails on context size.
+4. End-to-end (`claude login` + `gh auth`): `cognit take --pr <small PR>`; with `COGNIT_LOG_LEVEL=DEBUG` confirm the agent makes `pr_diff`/`Read` calls, quiz opens, grading + publish work. **Acceptance:** run against a PR touching a large/minified file — the denylisted file's diff section is stripped by `fetch_pr_diff` before the agent ever sees it, so the outline call succeeds regardless of the file size.

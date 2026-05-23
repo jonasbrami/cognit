@@ -95,24 +95,28 @@ def _neutralize_mermaid_labels(quiz: Quiz, rng: random.Random | None = None) -> 
 
 def generate_quiz(
     *,
-    diff: str,
     pr_title: str,
     pr_body: str,
-    files: dict[str, str],
     pr_number: int,
+    pr_url: str,
+    branch: str,
     llm: LLMClient,
     max_mermaid_retries: int = 2,
     model: str = "claude-sonnet-4-6",
     max_mermaid_workers: int = 1,
 ) -> Quiz:
-    # `max_mermaid_workers=1` (serial) is safe for hobby-tier Anthropic accounts; bursting
+    # `max_mermaid_workers=1` (serial) is safe for hobby-tier accounts; bursting
     # 4+ concurrent Sonnet calls in the same second is a realistic 429 trigger on tier-1
     # rate limits. Bump this for accounts that have headroom.
+    # NOTE: values >1 also race the adapter's shared `_current_tool` activity label
+    # (read by the streaming sink), which would mislabel the live feed — localize that
+    # per-call before parallelizing.
     req = GenerateRequest(
-        diff=diff,
         pr_title=pr_title,
         pr_body=pr_body,
-        files=files,
+        pr_number=pr_number,
+        pr_url=pr_url,
+        branch=branch,
         model=model,
     )
 

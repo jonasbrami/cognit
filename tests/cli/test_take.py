@@ -2,10 +2,8 @@ import hashlib
 import tempfile
 from pathlib import Path
 
-import httpx
 import pytest
 import typer
-from anthropic import APIError as AnthropicAPIError
 from typer.testing import CliRunner
 
 from cognit.cli import app
@@ -101,8 +99,8 @@ def test_take_generates_and_does_not_post_to_pr(monkeypatch: pytest.MonkeyPatch)
         lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "cognit.cli.take.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("diffstr\n" * 100, {}),
+        "cognit.cli.take.fetch_pr_diff",
+        lambda pr: "diffstr\n" * 100,
     )
     posted: list[str] = []
     monkeypatch.setattr(
@@ -134,8 +132,8 @@ def test_take_reuses_cache_on_second_run(monkeypatch: pytest.MonkeyPatch) -> Non
         lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "cognit.cli.take.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("diffstr\n" * 100, {}),
+        "cognit.cli.take.fetch_pr_diff",
+        lambda pr: "diffstr\n" * 100,
     )
     monkeypatch.setattr("cognit.cli.take.post_comment", lambda pr, md: "https://x/y#1")
     monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve({}))
@@ -148,7 +146,7 @@ def test_take_reuses_cache_on_second_run(monkeypatch: pytest.MonkeyPatch) -> Non
         raise AssertionError("should not be called on cache hit")
 
     monkeypatch.setattr("cognit.cli.take.fetch_pr_info", boom)
-    monkeypatch.setattr("cognit.cli.take.fetch_diff_and_files", boom)
+    monkeypatch.setattr("cognit.cli.take.fetch_pr_diff", boom)
     served2: dict[str, object] = {}
     monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve(served2))
 
@@ -176,8 +174,8 @@ def test_take_skips_small_diff(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "cognit.cli.take.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("only one line\n", {}),
+        "cognit.cli.take.fetch_pr_diff",
+        lambda pr: "only one line\n",
     )
 
     def fail_serve(*args, **kwargs):  # type: ignore[no-untyped-def]
@@ -200,8 +198,8 @@ def test_take_respects_quiz_skip_in_body(monkeypatch: pytest.MonkeyPatch) -> Non
         lambda pr: PRInfo(1, "t", "quiz: skip\n\nThis PR ...", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "cognit.cli.take.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
+        "cognit.cli.take.fetch_pr_diff",
+        lambda pr: "a\n" * 100,
     )
 
     def fail_serve(*args, **kwargs):  # type: ignore[no-untyped-def]
@@ -214,18 +212,16 @@ def test_take_respects_quiz_skip_in_body(monkeypatch: pytest.MonkeyPatch) -> Non
     )
 
 
-def test_take_surfaces_llm_failure_as_error_phase(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An LLM failure during streamed generation flips the broker to phase=error
-    (shown as an in-browser panel) rather than exiting — the server stays up."""
+def test_take_surfaces_malformed_quiz_as_error_phase(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A malformed outline (pydantic ValidationError) during streamed generation flips the
+    broker to phase=error (shown as an in-browser panel) rather than exiting."""
     from cognit.cli.take import _run_take_flow
 
     class BoomLLM:
         def generate_quiz_outline(self, req):  # type: ignore[no-untyped-def]
-            raise AnthropicAPIError(
-                message="simulated network failure",
-                request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
-                body=None,
-            )
+            # Simulate the agent submitting an outline that fails schema validation.
+            QuizOutline.model_validate({"questions": [{"type": "mcq", "id": "q"}]})
+            raise AssertionError("unreachable")
 
         def generate_mermaid_set(self, spec, req):  # type: ignore[no-untyped-def]
             raise AssertionError("should not be reached")
@@ -238,8 +234,8 @@ def test_take_surfaces_llm_failure_as_error_phase(monkeypatch: pytest.MonkeyPatc
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "cognit.cli.take.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
+        "cognit.cli.take.fetch_pr_diff",
+        lambda pr: "a\n" * 100,
     )
     served: dict[str, object] = {}
     monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve(served))
@@ -250,7 +246,8 @@ def test_take_surfaces_llm_failure_as_error_phase(monkeypatch: pytest.MonkeyPatc
         llm=BoomLLM(),  # type: ignore[arg-type]
     )
     assert served["broker"].phase == "error"  # type: ignore[attr-defined]
-    assert "simulated network failure" in served["broker"].error  # type: ignore[attr-defined]
+    # Distinct from the RuntimeError test: assert the surfaced message is a validation failure.
+    assert "validation error" in served["broker"].error.lower()  # type: ignore[attr-defined]
     # A failed generation must not be cached.
     assert not _cache_path("https://github.com/o/r/pull/1").exists()
 
@@ -277,8 +274,8 @@ def test_take_surfaces_runtime_error_from_agent_as_error_phase(
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
     )
     monkeypatch.setattr(
-        "cognit.cli.take.fetch_diff_and_files",
-        lambda pr, fetch_file_contents=None: ("a\n" * 100, {}),
+        "cognit.cli.take.fetch_pr_diff",
+        lambda pr: "a\n" * 100,
     )
     served: dict[str, object] = {}
     monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve(served))
@@ -290,3 +287,40 @@ def test_take_surfaces_runtime_error_from_agent_as_error_phase(
     )
     assert served["broker"].phase == "error"  # type: ignore[attr-defined]
     assert "claude binary not found" in served["broker"].error  # type: ignore[attr-defined]
+
+
+def test_take_surfaces_unexpected_subprocess_error_as_error_phase(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A non-(ValidationError/RuntimeError) escape from the worker — e.g. the agent's
+    pr_diff tool raising subprocess.CalledProcessError on a `gh` failure — must still
+    flip the broker to error, not leave the browser polling `generating` forever."""
+    import subprocess
+
+    from cognit.cli.take import _run_take_flow
+
+    class BoomLLM:
+        def generate_quiz_outline(self, req):  # type: ignore[no-untyped-def]
+            raise subprocess.CalledProcessError(1, ["gh", "pr", "diff"])
+
+        def generate_mermaid_set(self, spec, req):  # type: ignore[no-untyped-def]
+            raise AssertionError("should not be reached")
+
+        def grade_open(self, *args):  # type: ignore[no-untyped-def]
+            return (0, "")
+
+    monkeypatch.setattr(
+        "cognit.cli.take.fetch_pr_info",
+        lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
+    )
+    monkeypatch.setattr("cognit.cli.take.fetch_pr_diff", lambda pr: "a\n" * 100)
+    served: dict[str, object] = {}
+    monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve(served))
+
+    _run_take_flow(
+        "https://github.com/o/r/pull/1",
+        show_results_only=False,
+        llm=BoomLLM(),  # type: ignore[arg-type]
+    )
+    assert served["broker"].phase == "error"  # type: ignore[attr-defined]
+    assert not _cache_path("https://github.com/o/r/pull/1").exists()

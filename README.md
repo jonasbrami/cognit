@@ -11,7 +11,7 @@ A local CLI that quizzes the **author** of a pull request (not the reviewer) on 
 - `cognit take` — auto-detects the PR for your current branch, generates a quiz from the diff via Claude, opens it in your browser, grades in-session.
 - **Nothing is posted to GitHub** unless you click **Publish results to PR**. The quiz itself is never published; only a results comment, only if you ask.
 - Like CI checks or pre-commit hooks: opt-in. Failing doesn't gate anything — the value is the "aha" when you realize the code does something you didn't expect.
-- Anthropic-only in v1. Uses your Claude Code OAuth session if you have one, or `ANTHROPIC_API_KEY`.
+- Anthropic-only in v1. Requires a Claude Code OAuth session via `claude login` — no API-key path.
 
 ## Quickstart
 
@@ -21,9 +21,9 @@ A local CLI that quizzes the **author** of a pull request (not the reviewer) on 
 |---|---|---|
 | Python **≥3.12** | required | runtime |
 | [`gh`](https://cli.github.com/) (logged in via `gh auth login`) | required | PR detection, diff fetch, comment publish |
-| `git` | required | reads files at HEAD for context |
+| `git` | required | working-tree access so the agent can read changed files |
 | A web browser | required | the quiz UI runs at `http://127.0.0.1:<random-port>` |
-| [`claude`](https://docs.claude.com/en/docs/claude-code/overview) CLI (logged in via `claude login`) | optional | enables the OAuth auth path so you don't need an API key |
+| [`claude`](https://docs.claude.com/en/docs/claude-code/overview) CLI (logged in via `claude login`) | required | inference path — all model calls run through it |
 | [`@mermaid-js/mermaid-cli`](https://github.com/mermaid-js/mermaid-cli) (`mmdc`) | optional | fastest path for server-side mermaid validation. If absent, `cognit` falls back to a lazily-built Docker parse-only image, then to a Python regex backstop — see [Mermaid validation](#mermaid-validation). |
 
 ### Install
@@ -39,10 +39,7 @@ pipx install cognit
 
 ### Authenticate
 
-Either path works — `cognit` auto-detects:
-
-- **Claude Code OAuth (recommended, zero config).** If you've run `claude login`, the adapter reads `~/.claude/.credentials.json` automatically. Billed to your Claude Code subscription.
-- **API key.** `export ANTHROPIC_API_KEY=sk-ant-...`
+**Claude Code OAuth (zero config).** Run `claude login` once. `cognit` reads `~/.claude/.credentials.json` automatically. Billed to your Claude Code subscription.
 
 ### Run it
 
@@ -68,23 +65,26 @@ sequenceDiagram
   actor User
   participant CLI as cognit take
   participant gh as gh CLI
-  participant LLM as Anthropic
+  participant Agent as Claude (via claude CLI)
   participant Web as Local browser
 
   User->>CLI: cognit take
-  CLI->>gh: pr view / pr diff
-  gh-->>CLI: title, body, diff, files
-  CLI->>LLM: outline call
-  LLM-->>CLI: QuizOutline + mermaid specs
+  CLI->>gh: pr view (title, body)
+  gh-->>CLI: title, body
+  CLI->>Agent: outline call (title, body)
+  Agent->>gh: pr_diff tool (strips vendored/lock/binary)
+  gh-->>Agent: filtered diff
+  Agent->>Agent: Read/Grep/Glob on working tree
+  Agent-->>CLI: QuizOutline + mermaid specs
   loop per mermaid placeholder
-    CLI->>LLM: artisan call
-    LLM-->>CLI: 4 diagrams + correct key
+    CLI->>Agent: artisan call
+    Agent-->>CLI: 4 diagrams + correct key
   end
   CLI->>Web: serve quiz (inline JSON)
   User->>Web: answer + submit
   Web->>CLI: POST /submit
-  CLI->>LLM: grade_open per open Q
-  LLM-->>CLI: score + feedback
+  CLI->>Agent: grade_open per open Q
+  Agent-->>CLI: score + feedback
   CLI-->>Web: Results
   opt user clicks Publish
     Web->>CLI: POST /publish
@@ -110,7 +110,7 @@ cognit take [--pr URL] [--model NAME] [--min-diff-lines N] [--max-diff-lines N] 
 | `--max-diff-lines` | 2000 | Skip auto-generation if the diff is larger than this. |
 | `--show-results` | off | Print the latest results comment as JSON instead of opening the browser. |
 
-**Rate limits** follow whichever auth path you're using: Claude Code subscription limits for OAuth, standard Anthropic API limits for API keys.
+**Rate limits** follow your Claude Code subscription limits.
 
 ## Mermaid validation
 
@@ -133,8 +133,8 @@ COGNIT_LOG_LEVEL=DEBUG cognit take
 | `error: no PR detected from current branch` | Push the branch and open a PR, or pass `--pr <url>`. |
 | `diff is N lines (< 50) — skipping` | Lower the floor: `cognit take --min-diff-lines 0`. |
 | `diff is N lines (> 2000) — skipping` | Raise the ceiling: `cognit take --max-diff-lines 5000`. Long diffs cost more and the LLM may struggle to pick good questions. |
-| `Your Claude Code OAuth session is expired` | `claude login` to refresh, or `export ANTHROPIC_API_KEY=...` to switch to an API key. |
-| `Anthropic provider needs credentials` | Either `export ANTHROPIC_API_KEY=sk-ant-...` or `claude login`. |
+| `Your Claude Code OAuth session is expired` | `claude login` to refresh. |
+| `claude` binary not found / not on PATH | Install Claude Code and run `claude login`. |
 | `gh` errors out | `gh auth status` to check, `gh auth login` to (re-)authenticate. |
 | Browser doesn't open / port collision | The CLI picks a random free port and `webbrowser.open`s it. If your environment is headless, copy the `http://127.0.0.1:<port>` URL from the CLI output. |
 | Want to regenerate after a cached quiz | The cache lives at `$TMPDIR/cognit/<digest>.json` — delete that file and run `cognit take` again. |
@@ -170,7 +170,7 @@ Call this **comprehension-driven development (CDD)**: a change isn't done until 
 
 - A single CLI command: `cognit take`. Generates the quiz on first run, opens the browser, grades in-session, opt-in publish.
 - 4 question types (MCQ, mermaid-pick with auto-neutralized A/B/C/D labels, open, true/false).
-- Anthropic adapter via tool use (guaranteed-schema output) with Claude Code OAuth fallback.
+- Anthropic adapter via tool use (guaranteed-schema output), OAuth via the `claude` CLI.
 - Local FastAPI server with embedded HTML/JS/CSS + a vendored `mermaid.js` UMD bundle (no CDN at runtime).
 
 **Future** (see [`INTENTS.md`](INTENTS.md)):

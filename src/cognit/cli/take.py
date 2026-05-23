@@ -22,16 +22,14 @@ from pathlib import Path
 
 import typer
 import uvicorn
-from anthropic import APIError as AnthropicAPIError
 from pydantic import ValidationError
 
 from cognit.comment.parse import parse_results
 from cognit.engine.generate import generate_quiz
 from cognit.engine.llm import LLMClient
-from cognit.engine.llm_anthropic import AnthropicLLM
 from cognit.engine.llm_claude_agent import ClaudeAgentLLM
 from cognit.engine.models import Quiz
-from cognit.ghio.diff import fetch_diff_and_files, read_file_at_head
+from cognit.ghio.diff import fetch_pr_diff
 from cognit.ghio.pr import fetch_pr_info, find_latest_marker_comment, post_comment
 from cognit.server.app import build_app
 from cognit.server.streaming import Broker
@@ -42,15 +40,8 @@ _MARKER_RESULTS = "<!-- cognit:results v1 -->"
 
 
 def _make_llm(model: str) -> LLMClient:
-    """Pick the adapter based on the only auth signal that matters.
-
-    `ANTHROPIC_API_KEY` set → direct Anthropic SDK (fastest, no subprocess).
-    Otherwise → `claude_agent_sdk` (subprocesses the `claude` binary, which is
-    the only path that unlocks sonnet/opus for OAuth-only users; see
-    docs/superpowers/specs/2026-05-22-claude-agent-sdk-engine-design.md).
-    """
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return AnthropicLLM(model=model)
+    """The `claude` binary (subprocessed by claude_agent_sdk) is the only inference
+    path: it's what unlocks sonnet/opus for Claude Code OAuth users. Run `claude login`."""
     return ClaudeAgentLLM(model=model)
 
 
@@ -133,13 +124,15 @@ def _serve_blocking(
 
 @dataclass
 class _GenPrep:
-    """Everything `generate_quiz` needs, gathered by the synchronous pre-flight."""
+    """Everything `generate_quiz` needs, gathered by the synchronous pre-flight.
 
-    diff: str
+    No diff/files — the outline agent fetches the diff itself via its `pr_diff`
+    tool and reads the working tree, so we only carry PR metadata."""
+
     pr_title: str
     pr_body: str
-    files: dict[str, str]
     pr_number: int
+    branch: str
 
 
 def _prepare_generation(
@@ -154,8 +147,11 @@ def _prepare_generation(
     if "quiz: skip" in info.body.lower():
         typer.echo("quiz: skip in PR body — skipping.")
         return None
-    diff, files = fetch_diff_and_files(pr_url, fetch_file_contents=read_file_at_head)
-    diff_lines = diff.count("\n")
+    # Cheap size gate only — the diff is discarded here. The outline agent re-fetches it
+    # via its `pr_diff` tool; we keep this so a too-small/too-large PR is skipped before
+    # paying for an LLM call. `fetch_pr_diff` already strips vendored/minified/lock files,
+    # so the line count reflects the real change.
+    diff_lines = fetch_pr_diff(pr_url).count("\n")
     if diff_lines < min_diff_lines:
         typer.echo(f"diff is {diff_lines} lines (< {min_diff_lines}) — skipping.")
         return None
@@ -163,11 +159,10 @@ def _prepare_generation(
         typer.echo(f"diff is {diff_lines} lines (> {max_diff_lines}) — skipping.")
         return None
     return _GenPrep(
-        diff=diff,
         pr_title=info.title,
         pr_body=info.body,
-        files=files,
         pr_number=info.number,
+        branch=info.branch,
     )
 
 
@@ -186,15 +181,20 @@ def _run_generation(
     setattr(llm, "on_event", broker.emit)
     try:
         quiz = generate_quiz(
-            diff=prep.diff,
             pr_title=prep.pr_title,
             pr_body=prep.pr_body,
-            files=prep.files,
             pr_number=prep.pr_number,
+            pr_url=pr_url,
+            branch=prep.branch,
             llm=llm,
             model=model,
         )
-    except (AnthropicAPIError, ValidationError, RuntimeError) as e:
+    except Exception as e:
+        # Terminal background thread: its whole job is to report failure to the
+        # browser. Catch broadly — besides ValidationError/RuntimeError, the agent's
+        # `pr_diff` tool can raise subprocess.CalledProcessError (gh failure), which
+        # must flip the broker to `error` rather than escaping and leaving the page
+        # polling `generating` forever.
         typer.echo(f"quiz generation failed: {e}", err=True)
         broker.set_error(str(e))
         return
@@ -249,7 +249,7 @@ def _run_take_flow(
     prep = _prepare_generation(pr_url, min_diff_lines, max_diff_lines)
     if prep is None:
         return
-    typer.echo("generating quiz from diff...")
+    typer.echo("generating quiz...")
 
     def on_generate(broker: Broker) -> None:
         _run_generation(broker, prep=prep, pr_url=pr_url, llm=llm, model=model)

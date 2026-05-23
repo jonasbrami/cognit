@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from cognit.engine.generate import generate_quiz
@@ -13,8 +11,6 @@ from cognit.engine.models import (
     OpenQuestion,
     QuizOutline,
 )
-
-FIX = Path(__file__).parent.parent / "fixtures"
 
 
 def _placeholder() -> MermaidPlaceholder:
@@ -49,13 +45,12 @@ def test_generate_renders_mermaid_via_subagent_and_passes_others_through() -> No
         },
         correct="A",
     )
-    diff = (FIX / "diffs" / "small_refactor.patch").read_text()
     out = generate_quiz(
-        diff=diff,
         pr_title="add lock",
         pr_body="",
-        files={"cache.py": "..."},
         pr_number=1,
+        pr_url="https://github.com/o/r/pull/1",
+        branch="br",
         llm=FakeLLM(canned_outline=outline, canned_mermaid=mset),
     )
     assert out.pr_number == 1
@@ -91,11 +86,11 @@ def test_mermaid_labels_are_shuffled_after_subagent() -> None:
     seen_answer_keys: set[str] = set()
     for _ in range(20):
         out = generate_quiz(
-            diff="x",
             pr_title="t",
             pr_body="",
-            files={},
             pr_number=1,
+            pr_url="https://github.com/o/r/pull/1",
+            branch="br",
             llm=FakeLLM(
                 canned_outline=QuizOutline(questions=[placeholder]),
                 canned_mermaid=mset,
@@ -120,11 +115,11 @@ def test_generate_drops_invalid_mermaid(monkeypatch: pytest.MonkeyPatch) -> None
         ],
     )
     out = generate_quiz(
-        diff="x",
         pr_title="t",
         pr_body="",
-        files={},
         pr_number=1,
+        pr_url="https://github.com/o/r/pull/1",
+        branch="br",
         llm=FakeLLM(
             canned_outline=outline,
             canned_mermaid=MermaidSet(
@@ -169,11 +164,11 @@ def test_generate_retries_artisan_then_succeeds(monkeypatch: pytest.MonkeyPatch)
     )
     outline = QuizOutline(questions=[_placeholder()])
     out = generate_quiz(
-        diff="x",
         pr_title="t",
         pr_body="",
-        files={},
         pr_number=1,
+        pr_url="https://github.com/o/r/pull/1",
+        branch="br",
         llm=FakeLLM(canned_outline=outline, canned_mermaid=flaky),
         max_mermaid_retries=2,
     )
@@ -222,11 +217,11 @@ def test_generate_survives_validation_error_from_artisan(monkeypatch: pytest.Mon
     with pytest.raises(ValidationError):
         MermaidSet(options={"A": "x"}, correct="A")
     out = generate_quiz(
-        diff="x",
         pr_title="t",
         pr_body="",
-        files={},
         pr_number=1,
+        pr_url="https://github.com/o/r/pull/1",
+        branch="br",
         llm=FakeLLM(canned_outline=outline, canned_mermaid=boom_then_ok),
         max_mermaid_retries=2,
     )
