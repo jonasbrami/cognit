@@ -30,11 +30,12 @@ A local CLI that quizzes the **author** of a pull request (not the reviewer) on 
 
 ```bash
 # pick one:
-uv tool install git+https://github.com/jonasbrami/cognit.git
-pipx install git+https://github.com/jonasbrami/cognit.git
+uv tool install cognit
+pipx install cognit
 ```
 
-> Not on PyPI yet. Install from the GitHub source above until v0.1.0 is published.
+> Want the latest unreleased changes? Install from source instead:
+> `uv tool install git+https://github.com/jonasbrami/cognit.git`
 
 ### Authenticate
 
