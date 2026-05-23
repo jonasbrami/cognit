@@ -8,6 +8,7 @@ clicks Publish.
 
 import hashlib
 import json
+import os
 import socket
 import subprocess
 import tempfile
@@ -25,6 +26,7 @@ from quizz.comment.parse import parse_results
 from quizz.engine.generate import generate_quiz
 from quizz.engine.llm import LLMClient
 from quizz.engine.llm_anthropic import AnthropicLLM
+from quizz.engine.llm_claude_agent import ClaudeAgentLLM
 from quizz.engine.models import Quiz
 from quizz.ghio.diff import fetch_diff_and_files, read_file_at_head
 from quizz.ghio.pr import fetch_pr_info, find_latest_marker_comment, post_comment
@@ -34,8 +36,16 @@ _MARKER_RESULTS = "<!-- quizz:results v1 -->"
 
 
 def _make_llm(model: str) -> LLMClient:
-    """Construct the Anthropic LLM client. Kept as a function for test monkeypatch points."""
-    return AnthropicLLM(model=model)
+    """Pick the adapter based on the only auth signal that matters.
+
+    `ANTHROPIC_API_KEY` set → direct Anthropic SDK (fastest, no subprocess).
+    Otherwise → `claude_agent_sdk` (subprocesses the `claude` binary, which is
+    the only path that unlocks sonnet/opus for OAuth-only users; see
+    docs/superpowers/specs/2026-05-22-claude-agent-sdk-engine-design.md).
+    """
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return AnthropicLLM(model=model)
+    return ClaudeAgentLLM(model=model)
 
 
 def _detect_pr_from_branch() -> str | None:
@@ -125,6 +135,9 @@ def _generate_in_memory(
         raise typer.Exit(code=1) from None
     except ValidationError as e:
         typer.echo(f"LLM returned malformed quiz: {e}", err=True)
+        raise typer.Exit(code=1) from None
+    except RuntimeError as e:
+        typer.echo(f"LLM call failed: {e}", err=True)
         raise typer.Exit(code=1) from None
 
 
