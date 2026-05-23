@@ -38,9 +38,7 @@ def test_drain_agent_forwards_text_and_tool_use_events(monkeypatch: pytest.Monke
         ),
         object(),  # a non-AssistantMessage (e.g. ResultMessage) must be ignored
     ]
-    monkeypatch.setattr(
-        "cognit.engine.llm_claude_agent.query", _fake_query_yielding(*msgs)
-    )
+    monkeypatch.setattr("cognit.engine.llm_claude_agent.query", _fake_query_yielding(*msgs))
     captured: list[dict[str, Any]] = []
     llm = ClaudeAgentLLM()
     llm.on_event = captured.append
@@ -56,9 +54,7 @@ def test_drain_agent_forwards_text_and_tool_use_events(monkeypatch: pytest.Monke
 
 def test_drain_agent_is_silent_without_a_sink(monkeypatch: pytest.MonkeyPatch) -> None:
     msgs = [AssistantMessage(content=[TextBlock(text="hi")], model="m")]
-    monkeypatch.setattr(
-        "cognit.engine.llm_claude_agent.query", _fake_query_yielding(*msgs)
-    )
+    monkeypatch.setattr("cognit.engine.llm_claude_agent.query", _fake_query_yielding(*msgs))
     llm = ClaudeAgentLLM()  # on_event defaults to None
     # Must drain without raising and without requiring a sink.
     llm._drain_agent(prompt="u", options=None, handler=None)

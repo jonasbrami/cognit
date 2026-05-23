@@ -239,8 +239,9 @@ def _run_take_flow(
     # Cache hit: serve the ready quiz immediately, exactly as before.
     cached = _load_cached(pr_url)
     if cached is not None:
-        _serve_blocking(cached, pr_url, llm=llm, post_comment_fn=post_comment_fn,
-                        pr_number=cached.pr_number)
+        _serve_blocking(
+            cached, pr_url, llm=llm, post_comment_fn=post_comment_fn, pr_number=cached.pr_number
+        )
         return
 
     # Cache miss: gather + gate synchronously, then serve a "generating" page and

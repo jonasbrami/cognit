@@ -92,7 +92,9 @@ def test_submit_streams_grading_activity_to_progress(
     def fake_drain(self: ClaudeAgentLLM, *, prompt: str, options: Any, handler: Any) -> None:
         # Simulate Claude narrating while grading, then submitting the score.
         if self.on_event is not None:
-            self.on_event({"kind": "text", "text": "weighing the answer…", "tool": self._current_tool})
+            self.on_event(
+                {"kind": "text", "text": "weighing the answer…", "tool": self._current_tool}
+            )
         asyncio.run(handler(canned))
 
     monkeypatch.setattr(ClaudeAgentLLM, "_drain_agent", fake_drain)

@@ -136,9 +136,7 @@ def build_app(
             )
         quiz = broker.quiz
         if quiz is None:
-            return JSONResponse(
-                {"ok": False, "error": "quiz not ready"}, status_code=409
-            )
+            return JSONResponse({"ok": False, "error": "quiz not ready"}, status_code=409)
         comment_url = post_comment(render_results_inlined(quiz, answers, results))
         return JSONResponse(
             {"ok": True, "total_score": results.total_score, "comment_url": comment_url}

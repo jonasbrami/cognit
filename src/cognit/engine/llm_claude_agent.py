@@ -155,13 +155,9 @@ class ClaudeAgentLLM:
             return
         for block in msg.content:
             if isinstance(block, TextBlock):
-                self.on_event(
-                    {"kind": "text", "text": block.text, "tool": self._current_tool}
-                )
+                self.on_event({"kind": "text", "text": block.text, "tool": self._current_tool})
             elif isinstance(block, ToolUseBlock):
-                self.on_event(
-                    {"kind": "tool_use", "name": block.name, "tool": self._current_tool}
-                )
+                self.on_event({"kind": "tool_use", "name": block.name, "tool": self._current_tool})
 
     def generate_quiz_outline(self, req: GenerateRequest) -> QuizOutline:
         system = _load_prompt("system_generate.txt")
