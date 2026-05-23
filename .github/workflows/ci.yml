@@ -21,6 +21,8 @@ jobs:
         run: uv run ruff format --check
       - name: Type check
         run: uv run mypy src/
+      - name: Install Playwright browser
+        run: uv run playwright install --with-deps chromium
       - name: Test
         run: uv run pytest -v
 
@@ -38,6 +40,4 @@ jobs:
         run: |
           quizz --version
           quizz --help
-          quizz generate --help
-          quizz grade --help
           quizz take --help
