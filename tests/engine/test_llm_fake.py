@@ -8,9 +8,11 @@ def test_fake_returns_canned_outline() -> None:
         questions=[MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A")],
     )
     llm: LLMClient = FakeLLM(canned_outline=canned)
-    out = llm.generate_quiz_outline(GenerateRequest(
+    out = llm.generate_quiz_outline(
+        GenerateRequest(
             pr_title="t", pr_body="b", pr_number=1, pr_url="https://x/pull/1", branch="br"
-        ))
+        )
+    )
     assert out == canned
 
 
