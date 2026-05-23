@@ -1,5 +1,6 @@
 """Local FastAPI app for `quizz take`."""
 
+import asyncio
 import html as _html
 import json as _json
 from collections.abc import Callable
@@ -79,7 +80,12 @@ def build_app(
         answers = Answers.model_validate(body)
         last_answers["current"] = answers
         # Grade EVERYTHING in-session: deterministic (MCQ/mermaid/T/F) + LLM for open Q.
-        results = grade(quiz, answers, llm=llm)
+        # `grade()` is sync and (for ClaudeAgentLLM) internally calls
+        # `asyncio.run(...)` — which Python forbids from inside a running event
+        # loop. Offload to a worker thread so the adapter can drive its own loop
+        # without colliding with uvicorn's. As a bonus this also keeps
+        # AnthropicLLM's blocking HTTP off the event-loop thread.
+        results = await asyncio.to_thread(grade, quiz, answers, llm=llm)
         return JSONResponse(results.model_dump())
 
     @app.post("/publish")
