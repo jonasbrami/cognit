@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-05-25
+
+### Fixed
+- **PyPI package classifiers / Python-version badge.** Added trove `classifiers` (supported Python versions, license, topic) to package metadata. The `pypi/pyversions` shield now resolves to `3.12`/`3.13` instead of showing "missing", and the PyPI page advertises supported versions.
+
 ## [0.2.0] — 2026-05-25
 
 ### Changed
