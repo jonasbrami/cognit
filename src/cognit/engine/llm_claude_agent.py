@@ -340,7 +340,14 @@ class ClaudeAgentLLM:
             elif isinstance(block, TextBlock):
                 self.on_event({"kind": "text", "text": block.text, "tool": self._current_tool})
             elif isinstance(block, ToolUseBlock):
-                self.on_event({"kind": "tool_use", "name": block.name, "tool": self._current_tool})
+                event = {"kind": "tool_use", "name": block.name, "tool": self._current_tool}
+                # Surface the most informative argument so the feed shows WHICH file/pattern
+                # the agent is inspecting (e.g. "Read mermaid.py"), not just the tool name.
+                args = block.input if isinstance(block.input, dict) else {}
+                detail = args.get("file_path") or args.get("path") or args.get("pattern")
+                if detail:
+                    event["detail"] = str(detail)
+                self.on_event(event)
 
     def draft_quiz(self, req: GenerateRequest) -> QuizDraft:
         """Single-stage (agentic): the agent fetches the diff, reads the working tree

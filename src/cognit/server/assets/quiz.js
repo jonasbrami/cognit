@@ -640,10 +640,12 @@ function appendTermLine(feed, ev) {
       el("span", { class: "term__label", text: TOOL_LABELS[ev.tool] || ev.tool }),
     ]);
   } else if (ev.kind === "tool_use") {
-    line = el("div", { class: "term__line term__tool" }, [
+    const parts = [
       el("span", { class: "term__prompt", text: "·" }),
       el("span", { class: "term__dim", text: ev.name }),
-    ]);
+    ];
+    if (ev.detail) parts.push(el("span", { class: "term__text", text: " " + ev.detail }));
+    line = el("div", { class: "term__line term__tool" }, parts);
   } else if (ev.kind === "thinking" && ev.text.trim() !== "") {
     line = el("div", { class: "term__line term__think" }, [
       el("span", { class: "term__prompt", text: "✳" }),

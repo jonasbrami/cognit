@@ -33,7 +33,7 @@ def test_drain_agent_forwards_text_and_tool_use_events(monkeypatch: pytest.Monke
             content=[
                 TextBlock(text="picking questions…"),
                 ThinkingBlock(thinking="secret reasoning", signature="sig"),
-                ToolUseBlock(id="t1", name="Read", input={}),
+                ToolUseBlock(id="t1", name="Read", input={"file_path": "src/app.py"}),
             ],
             model="claude-sonnet-4-6",
         ),
@@ -50,7 +50,7 @@ def test_drain_agent_forwards_text_and_tool_use_events(monkeypatch: pytest.Monke
     assert captured == [
         {"kind": "text", "text": "picking questions…", "tool": "submit_quiz"},
         {"kind": "thinking", "text": "secret reasoning", "tool": "submit_quiz"},
-        {"kind": "tool_use", "name": "Read", "tool": "submit_quiz"},
+        {"kind": "tool_use", "name": "Read", "tool": "submit_quiz", "detail": "src/app.py"},
     ]
 
 
