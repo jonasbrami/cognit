@@ -51,7 +51,7 @@ from pydantic import ValidationError
 
 from cognit.engine.llm import GenerateRequest
 from cognit.engine.mermaid import distinctness_failure, is_valid_mermaid, uniformity_failures
-from cognit.engine.models import MermaidQuestion, QuizDraft
+from cognit.engine.models import MCQQuestion, MermaidQuestion, QuizDraft, TrueFalseQuestion
 from cognit.ghio.diff import fetch_pr_diff, split_diff, summarize_diff
 
 _TOOL_SUBMIT = "submit_quiz"
@@ -179,6 +179,14 @@ def _submit_validation_hook(
 
         failures: list[str] = []
         for q in draft.questions:
+            if (
+                isinstance(q, (MCQQuestion, TrueFalseQuestion, MermaidQuestion))
+                and not q.explanation.strip()
+            ):
+                failures.append(
+                    f"question {q.id!r}: missing a one-sentence `explanation` "
+                    "(shown to the reader after they answer)"
+                )
             if not isinstance(q, MermaidQuestion):
                 continue
             if len(q.options) != 4:

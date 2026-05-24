@@ -27,6 +27,7 @@ def _mermaid_q(options: dict[str, str], answer: str = "A") -> dict[str, Any]:
         "prompt": "which flow?",
         "options": options,
         "answer": answer,
+        "explanation": "A is the real path; the others reorder the auth/limit steps.",
     }
 
 
@@ -83,7 +84,8 @@ def test_no_mermaid_denied_once_then_allowed(monkeypatch: pytest.MonkeyPatch) ->
         "tool_name": f"mcp__cognit__{_TOOL_SUBMIT}",
         "tool_input": {
             "questions": [
-                {"type": "mcq", "id": "q1", "prompt": "?", "options": ["x", "y"], "answer": "x"}
+                {"type": "mcq", "id": "q1", "prompt": "?", "options": ["x", "y"], "answer": "x",
+                 "explanation": "x because it short-circuits before the y branch runs."}
             ]
         },
     }
@@ -92,6 +94,15 @@ def test_no_mermaid_denied_once_then_allowed(monkeypatch: pytest.MonkeyPatch) ->
     assert "diagram" in first["hookSpecificOutput"]["permissionDecisionReason"]
     second = asyncio.run(hook(payload, None, {}))
     assert second == {}  # reasoned resubmit accepted
+
+
+def test_objective_question_missing_explanation_denied(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(llm_mod, "is_valid_mermaid", lambda src, strict=False: True)
+    q = _mermaid_q(DISTINCT)
+    q["explanation"] = ""  # missing
+    out = _run({"questions": [q]})
+    assert _denied(out)
+    assert "explanation" in out["hookSpecificOutput"]["permissionDecisionReason"]
 
 
 def test_emits_validation_events(monkeypatch: pytest.MonkeyPatch) -> None:
