@@ -8,6 +8,7 @@ class MCQQuestion(BaseModel):
     prompt: str
     options: list[str]
     answer: str  # must equal one of options
+    explanation: str = ""  # shown to the reader after they answer (the "aha")
 
     @model_validator(mode="after")
     def _answer_in_options(self) -> "MCQQuestion":
@@ -22,6 +23,7 @@ class MermaidQuestion(BaseModel):
     prompt: str
     options: dict[str, str]  # label -> mermaid source
     answer: str  # must be a key of options
+    explanation: str = ""  # shown to the reader after they answer (the "aha")
 
     @model_validator(mode="after")
     def _answer_is_option_key(self) -> "MermaidQuestion":
@@ -42,6 +44,7 @@ class TrueFalseQuestion(BaseModel):
     id: str
     prompt: str
     answer: bool
+    explanation: str = ""  # shown to the reader after they answer (the "aha")
 
 
 Question = Annotated[
