@@ -92,13 +92,19 @@ def test_score_must_be_in_0_100():
 
 def test_objective_questions_carry_optional_explanation():
     mcq = MCQQuestion(
-        id="q1", prompt="?", options=["a", "b"], answer="a",
+        id="q1",
+        prompt="?",
+        options=["a", "b"],
+        answer="a",
         explanation="b is wrong because it returns the cached value, not a fresh read.",
     )
     assert mcq.explanation.startswith("b is wrong")
     # default is empty (backward compatible with existing fixtures)
     assert MCQQuestion(id="q2", prompt="?", options=["a", "b"], answer="a").explanation == ""
     assert TrueFalseQuestion(id="q3", prompt="?", answer=True).explanation == ""
-    assert MermaidQuestion(
-        id="q4", prompt="?", options={"A": "flowchart LR\nA-->B"}, answer="A"
-    ).explanation == ""
+    assert (
+        MermaidQuestion(
+            id="q4", prompt="?", options={"A": "flowchart LR\nA-->B"}, answer="A"
+        ).explanation
+        == ""
+    )

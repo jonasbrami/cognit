@@ -84,8 +84,14 @@ def test_no_mermaid_denied_once_then_allowed(monkeypatch: pytest.MonkeyPatch) ->
         "tool_name": f"mcp__cognit__{_TOOL_SUBMIT}",
         "tool_input": {
             "questions": [
-                {"type": "mcq", "id": "q1", "prompt": "?", "options": ["x", "y"], "answer": "x",
-                 "explanation": "x because it short-circuits before the y branch runs."}
+                {
+                    "type": "mcq",
+                    "id": "q1",
+                    "prompt": "?",
+                    "options": ["x", "y"],
+                    "answer": "x",
+                    "explanation": "x because it short-circuits before the y branch runs.",
+                }
             ]
         },
     }

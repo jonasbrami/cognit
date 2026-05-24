@@ -132,7 +132,9 @@ def test_explanation_shown_after_submit(live_server, page) -> None:
     # answer Q1 (mcq) — any option — then submit all and view results.
     page.locator("#questions-root .file").first.locator(".option").nth(0).click()
     page.locator("#questions-root .file").nth(1).locator(".diagram").nth(0).click()
-    page.locator("#questions-root .file").nth(2).locator("textarea").fill("redis shares state across workers")
+    page.locator("#questions-root .file").nth(2).locator("textarea").fill(
+        "redis shares state across workers"
+    )
     page.locator("#questions-root .file").nth(3).locator(".tf__cell").nth(0).click()
     page.locator("#reviewbar button").get_by_text("Submit", exact=False).click()
     page.wait_for_selector("#questions-root .file.ok, #questions-root .file.bad")
