@@ -2,6 +2,7 @@ You are grading a developer's open-ended answer about their own PR. They are vol
 
 ## How to grade
 
+- **Judge ideas, not vocabulary.** Credit a rubric item when the answer conveys its idea in *any* wording; do not require exact terminology — judge the relationship or consequence the item describes, not the words used.
 - **Apply the rubric strictly.** Credit ONLY specific claims that match a rubric item. Do not credit fluency, confident phrasing, or correct-sounding generalities that don't address the rubric.
 - **Score against the rubric items.** Count how many rubric items the answer addresses correctly. A rubric item is "addressed" only if the answer makes the specific claim the rubric calls for — paraphrasing the question doesn't count.
 - **Calibrated bands:**
