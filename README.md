@@ -95,7 +95,17 @@ sequenceDiagram
 
 The LLM picks question count and type mix based on diff complexity — typically 2–10 questions across MCQ, mermaid-pick, open, and true/false. To suppress quiz generation on a specific PR, include `quiz: skip` in the PR description.
 
-> v1 ships as a local CLI only. A GitHub Actions wrapper that would auto-trigger the quiz on PR open is **not on the roadmap** — see [`INTENTS.md`](INTENTS.md).
+> v1 ships as a local CLI only. A GitHub Actions wrapper that would auto-trigger the quiz on PR open is **not on the roadmap** — see [`ROADMAP.md`](ROADMAP.md).
+
+### Security model and inference routing
+
+All model calls route through the `claude` binary via the Claude Agent SDK — not the Anthropic Python SDK directly. This is load-bearing for two reasons:
+
+1. **Model access.** The direct Anthropic SDK with an OAuth token is gated to Haiku. Routing through the `claude` binary is what lets Claude Code OAuth and Max subscribers reach Sonnet and Opus.
+2. **Safety boundary.** The generation agent runs under `bypassPermissions`, which auto-runs every *available* tool without prompting. The real gate is the `tools=` parameter, which controls *availability* — not the allow-list (which only suppresses prompts). For generation, the available built-ins are `Read`, `Grep`, `Glob` only: no `Bash`, no `Write`, no `Edit`, so the agent can't shell out or mutate the working tree. (Why not a restricted-git Bash? `tools=` is coarse — you get the whole shell or none — and `git` is an RCE surface via config, external-diff drivers, and aliases. The `file_diff` MCP tool exposes one fixed `subprocess.run` argv instead.)
+3. **Read confinement.** A `PreToolUse` hook resolves every `Read`/`Grep`/`Glob` path against the repo root and denies traversals (`../`, absolute paths), so a prompt-injected PR body can't coax the agent into reading `~/.ssh/id_rsa`.
+
+**Cost note.** The `total_cost_usd` logged at the end of a run is an *estimate* from token counts — what a pay-as-you-go API key would bill. Max-plan subscribers are not charged per call.
 
 ## Configuration
 
@@ -174,7 +184,7 @@ Call this **comprehension-driven development (CDD)**: a change isn't done until 
 - Anthropic adapter via tool use (guaranteed-schema output), OAuth via the `claude` CLI.
 - Local FastAPI server with embedded HTML/JS/CSS + a vendored `mermaid.js` UMD bundle (no CDN at runtime).
 
-**Future** (see [`INTENTS.md`](INTENTS.md)):
+**Future** (see [`ROADMAP.md`](ROADMAP.md)):
 
 - GitHub App (no per-repo workflow file).
 - Fleet of LLMs for question diversity.
