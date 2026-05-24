@@ -126,6 +126,21 @@ def test_discard_returns_to_questions_with_empty_state(live_server, page) -> Non
     assert submit_btn.get_attribute("disabled") is not None or submit_btn.is_disabled()
 
 
+def test_explanation_shown_after_submit(live_server, page) -> None:
+    base, _posted = live_server
+    page.goto(base, wait_until="networkidle")
+    # answer Q1 (mcq) — any option — then submit all and view results.
+    page.locator("#questions-root .file").first.locator(".option").nth(0).click()
+    page.locator("#questions-root .file").nth(1).locator(".diagram").nth(0).click()
+    page.locator("#questions-root .file").nth(2).locator("textarea").fill("redis shares state across workers")
+    page.locator("#questions-root .file").nth(3).locator(".tf__cell").nth(0).click()
+    page.locator("#reviewbar button").get_by_text("Submit", exact=False).click()
+    page.wait_for_selector("#questions-root .file.ok, #questions-root .file.bad")
+    first_card = page.locator("#questions-root .file").first
+    # "never lets the request through" appears only in the explanation, not in prompt/answer
+    assert "never lets the request through" in first_card.text_content()  # explanation rendered
+
+
 def test_publish_renders_success_banner(live_server, page) -> None:
     base, posted = live_server
     page.goto(base, wait_until="networkidle")

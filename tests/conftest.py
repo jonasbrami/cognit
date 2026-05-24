@@ -56,6 +56,7 @@ def sample_quiz() -> Quiz:
                     "increments a counter and continues",
                 ],
                 answer="returns JSONResponse(status_code=429) with a Retry-After header",
+                explanation="It returns a JSONResponse, not a raised exception — the middleware never lets the request through.",
             ),
             MermaidQuestion(
                 id="q2",

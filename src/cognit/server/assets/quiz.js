@@ -404,6 +404,13 @@ function renderResultCard(q, r, i) {
     }
   }
 
+  if (q.explanation) {
+    body.push(el("div", { class: "feedback" }, [
+      el("div", { class: "feedback__head" }, ["Why"]),
+      el("p", { text: q.explanation }),
+    ]));
+  }
+
   return el("article", { class: `file ${cls}` }, [
     el("div", { class: "file__head" }, [
       el("div", { class: "file__title", text: `Question ${i + 1}` }),
