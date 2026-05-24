@@ -2,8 +2,7 @@
 
 Routes inference through the official `claude` binary (subprocessed by
 claude_agent_sdk), the only path that lets Claude Code OAuth users reach
-sonnet/opus (the direct Anthropic SDK + OAuth combo is gated to haiku — see
-docs/superpowers/specs/2026-05-22-claude-agent-sdk-engine-design.md). This is
+sonnet/opus (the direct Anthropic SDK + OAuth combo is gated to haiku). This is
 now the sole inference path; the direct-API adapter was removed.
 
 Structured output is captured via in-process MCP tools: the agent invokes a
