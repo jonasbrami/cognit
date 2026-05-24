@@ -98,10 +98,6 @@ def test_take_generates_and_does_not_post_to_pr(monkeypatch: pytest.MonkeyPatch)
         "cognit.cli.take.fetch_pr_info",
         lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
     )
-    monkeypatch.setattr(
-        "cognit.cli.take.fetch_pr_diff",
-        lambda pr: "diffstr\n" * 100,
-    )
     posted: list[str] = []
     monkeypatch.setattr(
         "cognit.cli.take.post_comment",
@@ -131,22 +127,17 @@ def test_take_reuses_cache_on_second_run(monkeypatch: pytest.MonkeyPatch) -> Non
         "cognit.cli.take.fetch_pr_info",
         lambda pr: PRInfo(42, "t", "b", "o/r", "br", "alice"),
     )
-    monkeypatch.setattr(
-        "cognit.cli.take.fetch_pr_diff",
-        lambda pr: "diffstr\n" * 100,
-    )
     monkeypatch.setattr("cognit.cli.take.post_comment", lambda pr, md: "https://x/y#1")
     monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve({}))
 
     _run_take_flow(pr_url, show_results_only=False, llm=_fake_llm_with_outline())
     assert _cache_path(pr_url).exists()
 
-    # Second run: must NOT call fetch_pr_info or fetch_diff (cache wins).
+    # Second run: must NOT call fetch_pr_info (cache wins).
     def boom(*args, **kwargs):  # type: ignore[no-untyped-def]
         raise AssertionError("should not be called on cache hit")
 
     monkeypatch.setattr("cognit.cli.take.fetch_pr_info", boom)
-    monkeypatch.setattr("cognit.cli.take.fetch_pr_diff", boom)
     served2: dict[str, object] = {}
     monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve(served2))
 
@@ -166,40 +157,12 @@ def test_take_show_results_when_no_results_yet(monkeypatch: pytest.MonkeyPatch) 
     assert exc_info.value.exit_code == 1
 
 
-def test_take_skips_small_diff(monkeypatch: pytest.MonkeyPatch) -> None:
-    from cognit.cli.take import _run_take_flow
-
-    monkeypatch.setattr(
-        "cognit.cli.take.fetch_pr_info",
-        lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
-    )
-    monkeypatch.setattr(
-        "cognit.cli.take.fetch_pr_diff",
-        lambda pr: "only one line\n",
-    )
-
-    def fail_serve(*args, **kwargs):  # type: ignore[no-untyped-def]
-        raise AssertionError("should not serve when diff is too small")
-
-    monkeypatch.setattr("cognit.cli.take._serve_blocking", fail_serve)
-
-    _run_take_flow(
-        "https://github.com/o/r/pull/1", show_results_only=False, llm=_fake_llm_with_outline()
-    )
-    # No cache should be written for skipped PRs.
-    assert not _cache_path("https://github.com/o/r/pull/1").exists()
-
-
 def test_take_respects_quiz_skip_in_body(monkeypatch: pytest.MonkeyPatch) -> None:
     from cognit.cli.take import _run_take_flow
 
     monkeypatch.setattr(
         "cognit.cli.take.fetch_pr_info",
         lambda pr: PRInfo(1, "t", "quiz: skip\n\nThis PR ...", "o/r", "br", "alice"),
-    )
-    monkeypatch.setattr(
-        "cognit.cli.take.fetch_pr_diff",
-        lambda pr: "a\n" * 100,
     )
 
     def fail_serve(*args, **kwargs):  # type: ignore[no-untyped-def]
@@ -229,10 +192,6 @@ def test_take_surfaces_malformed_quiz_as_error_phase(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(
         "cognit.cli.take.fetch_pr_info",
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
-    )
-    monkeypatch.setattr(
-        "cognit.cli.take.fetch_pr_diff",
-        lambda pr: "a\n" * 100,
     )
     served: dict[str, object] = {}
     monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve(served))
@@ -267,10 +226,6 @@ def test_take_surfaces_runtime_error_from_agent_as_error_phase(
         "cognit.cli.take.fetch_pr_info",
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
     )
-    monkeypatch.setattr(
-        "cognit.cli.take.fetch_pr_diff",
-        lambda pr: "a\n" * 100,
-    )
     served: dict[str, object] = {}
     monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve(served))
 
@@ -304,7 +259,6 @@ def test_take_surfaces_unexpected_subprocess_error_as_error_phase(
         "cognit.cli.take.fetch_pr_info",
         lambda pr: PRInfo(1, "t", "b", "o/r", "br", "alice"),
     )
-    monkeypatch.setattr("cognit.cli.take.fetch_pr_diff", lambda pr: "a\n" * 100)
     served: dict[str, object] = {}
     monkeypatch.setattr("cognit.cli.take._serve_blocking", _capturing_serve(served))
 

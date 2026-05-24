@@ -112,9 +112,10 @@ def summarize_diff(diff: str) -> str:
 def fetch_pr_diff(pr_url_or_number: str) -> str:
     """Return the PR's unified diff with vendored/minified/lock/binary sections stripped.
 
-    The agentic outline path calls this both to gate on diff size (line count) and as
-    the `pr_diff` tool the agent invokes — so stripping bloat here protects the model's
-    context window from a single huge minified-file diff.
+    The agentic outline path fetches this once up front: a `--stat`-style overview goes
+    into the prompt and the agent pulls individual files' hunks via the per-file diff tool
+    — so stripping bloat here protects the model's context window from a single huge
+    minified-file diff.
     """
     raw = subprocess.run(
         ["gh", "pr", "diff", pr_url_or_number],
