@@ -18,7 +18,7 @@ from claude_agent_sdk import CLINotFoundError
 import cognit.engine.llm_claude_agent as llm_mod
 from cognit.engine.llm import GenerateRequest
 from cognit.engine.llm_claude_agent import ClaudeAgentLLM
-from cognit.engine.models import MCQQuestion, MermaidSet, MermaidSpec, QuizDraft
+from cognit.engine.models import MCQQuestion, QuizDraft
 
 
 def _req() -> GenerateRequest:
@@ -240,61 +240,6 @@ def test_draft_quiz_raises_when_submit_not_called(
     llm = ClaudeAgentLLM()
     with pytest.raises(RuntimeError, match="submit_quiz"):
         llm.draft_quiz(_req())
-
-
-# --- generate_mermaid_set ---
-
-
-def test_generate_mermaid_set_calls_mermaid_tool(monkeypatch: pytest.MonkeyPatch) -> None:
-    canned = MermaidSet(
-        options={
-            "A": "flowchart LR\nA-->B",
-            "B": "flowchart LR\nB-->A",
-            "C": "flowchart LR\nA-->C",
-            "D": "flowchart LR\nD-->A",
-        },
-        correct="A",
-    )
-    seen: dict[str, Any] = {}
-
-    def fake_invoke(self: ClaudeAgentLLM, **kw: Any) -> dict[str, Any]:
-        seen.update(kw)
-        return canned.model_dump()
-
-    monkeypatch.setattr(ClaudeAgentLLM, "_invoke_tool", fake_invoke)
-    llm = ClaudeAgentLLM()
-    out = llm.generate_mermaid_set(
-        MermaidSpec(
-            diagram_type="flowchart",
-            correct_description="A calls B",
-            misconceptions=["B calls A", "no call", "extra C"],
-            style_notes="2 nodes, LR",
-        ),
-        _req(),
-    )
-    assert out == canned
-    assert seen["tool_name"] == "submit_mermaid_set"
-    assert "mermaid" in seen["system"].lower()
-    schema = seen["tool_schema"]
-    assert schema["properties"]["options"]["required"] == ["A", "B", "C", "D"]
-    assert schema["properties"]["correct"]["enum"] == ["A", "B", "C", "D"]
-
-
-def test_generate_mermaid_set_raises_when_tool_not_called(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(ClaudeAgentLLM, "_invoke_tool", lambda self, **kw: None)
-    llm = ClaudeAgentLLM()
-    with pytest.raises(RuntimeError, match="submit_mermaid_set"):
-        llm.generate_mermaid_set(
-            MermaidSpec(
-                diagram_type="flowchart",
-                correct_description="x",
-                misconceptions=["a", "b", "c"],
-                style_notes="n",
-            ),
-            _req(),
-        )
 
 
 # --- grade_open ---

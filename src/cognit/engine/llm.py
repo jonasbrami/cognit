@@ -2,7 +2,7 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
-from cognit.engine.models import MermaidSet, MermaidSpec, QuizDraft
+from cognit.engine.models import QuizDraft
 
 
 class GenerateRequest(BaseModel):
@@ -19,9 +19,5 @@ class LLMClient(Protocol):
         """Produce the complete quiz in one agentic call. Mermaid questions are fully
         rendered (4 diagrams + the correct key); a submit-validation hook ensures every
         diagram parses and the four are visually uniform before the submission is accepted."""
-
-    def generate_mermaid_set(self, spec: MermaidSpec, req: GenerateRequest) -> MermaidSet:
-        """Stage 2: render 4 mermaid diagrams (1 correct + 3 plausible distractors) in
-        uniform style, given a structured spec produced in stage 1."""
 
     def grade_open(self, question_prompt: str, rubric: str, answer: str) -> tuple[int, str]: ...
