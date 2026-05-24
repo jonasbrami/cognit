@@ -8,7 +8,7 @@ from typer.testing import CliRunner
 
 from cognit.cli import app
 from cognit.engine.llm_fake import FakeLLM
-from cognit.engine.models import MCQQuestion, QuizOutline
+from cognit.engine.models import MCQQuestion, QuizDraft
 from cognit.ghio.pr import PRInfo
 from cognit.server.streaming import Broker
 
@@ -21,7 +21,7 @@ def _fake_llm() -> FakeLLM:
 
 def _fake_llm_with_outline() -> FakeLLM:
     return FakeLLM(
-        canned_outline=QuizOutline(
+        canned_draft=QuizDraft(
             questions=[MCQQuestion(id="q1", prompt="why?", options=["A", "B"], answer="A")],
         ),
         canned_open_score=80,
@@ -218,13 +218,10 @@ def test_take_surfaces_malformed_quiz_as_error_phase(monkeypatch: pytest.MonkeyP
     from cognit.cli.take import _run_take_flow
 
     class BoomLLM:
-        def generate_quiz_outline(self, req):  # type: ignore[no-untyped-def]
-            # Simulate the agent submitting an outline that fails schema validation.
-            QuizOutline.model_validate({"questions": [{"type": "mcq", "id": "q"}]})
+        def draft_quiz(self, req):  # type: ignore[no-untyped-def]
+            # Simulate the agent submitting a quiz that fails schema validation.
+            QuizDraft.model_validate({"questions": [{"type": "mcq", "id": "q"}]})
             raise AssertionError("unreachable")
-
-        def generate_mermaid_set(self, spec, req):  # type: ignore[no-untyped-def]
-            raise AssertionError("should not be reached")
 
         def grade_open(self, *args):  # type: ignore[no-untyped-def]
             return (0, "")
@@ -259,11 +256,8 @@ def test_take_surfaces_runtime_error_from_agent_as_error_phase(
     from cognit.cli.take import _run_take_flow
 
     class BoomLLM:
-        def generate_quiz_outline(self, req):  # type: ignore[no-untyped-def]
+        def draft_quiz(self, req):  # type: ignore[no-untyped-def]
             raise RuntimeError("claude binary not found; install Claude Code")
-
-        def generate_mermaid_set(self, spec, req):  # type: ignore[no-untyped-def]
-            raise AssertionError("should not be reached")
 
         def grade_open(self, *args):  # type: ignore[no-untyped-def]
             return (0, "")
@@ -300,11 +294,8 @@ def test_take_surfaces_unexpected_subprocess_error_as_error_phase(
     from cognit.cli.take import _run_take_flow
 
     class BoomLLM:
-        def generate_quiz_outline(self, req):  # type: ignore[no-untyped-def]
+        def draft_quiz(self, req):  # type: ignore[no-untyped-def]
             raise subprocess.CalledProcessError(1, ["gh", "pr", "diff"])
-
-        def generate_mermaid_set(self, spec, req):  # type: ignore[no-untyped-def]
-            raise AssertionError("should not be reached")
 
         def grade_open(self, *args):  # type: ignore[no-untyped-def]
             return (0, "")

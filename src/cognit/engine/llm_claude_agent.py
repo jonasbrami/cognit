@@ -341,9 +341,11 @@ class ClaudeAgentLLM:
             elif isinstance(block, ToolUseBlock):
                 self.on_event({"kind": "tool_use", "name": block.name, "tool": self._current_tool})
 
-    def generate_quiz_outline(self, req: GenerateRequest) -> QuizOutline:
-        """Stage 1 (agentic): the agent fetches the PR diff and reads the working tree
-        with read-only tools, pulling only what it needs, then submits the outline."""
+    def draft_quiz(self, req: GenerateRequest) -> QuizDraft:
+        """Single-stage (agentic): the agent fetches the diff, reads the working tree
+        with read-only tools, renders any mermaid diagrams itself, and submits the
+        complete quiz. The submit-validation hook gates the submission, so the agent
+        self-corrects invalid/non-uniform diagrams within the same turn."""
         system = _load_prompt("system_generate.txt")
         user = _load_prompt("generate.txt").format(
             pr_number=req.pr_number,
@@ -355,9 +357,9 @@ class ClaudeAgentLLM:
 
         # Announce the phase so the streamed feed labels it (mirrors `_invoke_tool`;
         # this path drives the SDK directly so it must tag activity itself).
-        self._current_tool = _TOOL_OUTLINE
+        self._current_tool = _TOOL_SUBMIT
         if self.on_event is not None:
-            self.on_event({"kind": "step", "tool": _TOOL_OUTLINE})
+            self.on_event({"kind": "step", "tool": _TOOL_SUBMIT})
 
         async def pr_diff_handler(args: dict[str, Any]) -> dict[str, Any]:
             return {"content": [{"type": "text", "text": fetch_pr_diff(req.pr_url)}]}
@@ -373,9 +375,9 @@ class ClaudeAgentLLM:
             {"type": "object", "properties": {}},
         )(pr_diff_handler)
         submit_tool = tool(
-            _TOOL_OUTLINE,
-            "Submit the generated quiz outline.",
-            QuizOutline.model_json_schema(),
+            _TOOL_SUBMIT,
+            "Submit the complete quiz, mermaid diagrams fully rendered.",
+            QuizDraft.model_json_schema(),
         )(submit_handler)
         server = create_sdk_mcp_server(name="cognit", tools=[pr_diff_tool, submit_tool])
 
@@ -387,18 +389,24 @@ class ClaudeAgentLLM:
             allowed_tools=[
                 *_OUTLINE_BUILTIN_TOOLS,
                 f"mcp__cognit__{_TOOL_PR_DIFF}",
-                f"mcp__cognit__{_TOOL_OUTLINE}",
+                f"mcp__cognit__{_TOOL_SUBMIT}",
             ],
             tools=_OUTLINE_BUILTIN_TOOLS,
             max_turns=_OUTLINE_MAX_TURNS,
             cwd=repo_root,
             handler=submit_handler,
-            # Confine the read tools to the checkout (bypassPermissions skips rules).
-            hooks={"PreToolUse": [_read_confinement_hook(repo_root)]},
+            # Two PreToolUse matchers: confine reads to the checkout, and validate the
+            # submitted quiz (mermaid syntax + uniformity) so the agent fixes it in-turn.
+            hooks={
+                "PreToolUse": [
+                    _read_confinement_hook(repo_root),
+                    _submit_validation_hook(self.on_event),
+                ]
+            },
         )
         if not captured:
-            raise RuntimeError(f"agent did not call {_TOOL_OUTLINE}")
-        return QuizOutline.model_validate(captured[0])
+            raise RuntimeError(f"agent did not call {_TOOL_SUBMIT}")
+        return QuizDraft.model_validate(captured[0])
 
     def generate_mermaid_set(self, spec: MermaidSpec, req: GenerateRequest) -> MermaidSet:
         system = _load_prompt("system_mermaid.txt")

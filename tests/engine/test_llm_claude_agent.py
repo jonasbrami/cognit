@@ -18,7 +18,7 @@ from claude_agent_sdk import CLINotFoundError
 import cognit.engine.llm_claude_agent as llm_mod
 from cognit.engine.llm import GenerateRequest
 from cognit.engine.llm_claude_agent import ClaudeAgentLLM
-from cognit.engine.models import MCQQuestion, MermaidSet, MermaidSpec, QuizOutline
+from cognit.engine.models import MCQQuestion, MermaidSet, MermaidSpec, QuizDraft
 
 
 def _req() -> GenerateRequest:
@@ -123,15 +123,15 @@ def test_invoke_tool_maps_cli_not_found_to_runtime_error(
         )
 
 
-# --- generate_quiz_outline (agentic, read-only multi-tool path) ---
+# --- draft_quiz (agentic, read-only multi-tool path) ---
 
 
-def test_generate_quiz_outline_restricts_to_readonly_tools(
+def test_draft_quiz_restricts_to_readonly_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The outline agent gets read-only built-ins via `tools=` (the availability knob),
+    """The generation agent gets read-only built-ins via `tools=` (the availability knob),
     a cwd at the repo root, and a higher turn budget. It must NOT be able to write/shell."""
-    canned = QuizOutline(
+    canned = QuizDraft(
         questions=[MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A")]
     )
     seen: dict[str, Any] = {}
@@ -139,13 +139,13 @@ def test_generate_quiz_outline_restricts_to_readonly_tools(
     def fake_drain(self: ClaudeAgentLLM, *, prompt: str, options: Any, handler: Any) -> None:
         seen["options"] = options
         seen["prompt"] = prompt
-        asyncio.run(handler(canned.model_dump()))  # agent submits the outline
+        asyncio.run(handler(canned.model_dump()))  # agent submits the quiz
 
     monkeypatch.setattr(ClaudeAgentLLM, "_drain_agent", fake_drain)
     monkeypatch.setattr(llm_mod, "_repo_root", lambda: "/repo/root")
 
     llm = ClaudeAgentLLM()
-    out = llm.generate_quiz_outline(_req())
+    out = llm.draft_quiz(_req())
 
     assert out == canned
     opts = seen["options"]
@@ -155,15 +155,16 @@ def test_generate_quiz_outline_restricts_to_readonly_tools(
         "Grep",
         "Glob",
         "mcp__cognit__pr_diff",
-        "mcp__cognit__submit_quiz_outline",
+        "mcp__cognit__submit_quiz",
     ]
     assert opts.cwd == "/repo/root"
     assert opts.max_turns == 30
     assert opts.permission_mode == "bypassPermissions"
-    # A PreToolUse hook confines the read tools to the repo (defense-in-depth under
-    # bypassPermissions, which skips permission rules).
-    assert "PreToolUse" in opts.hooks
-    assert opts.hooks["PreToolUse"][0].matcher == "Read|Grep|Glob"
+    # Two PreToolUse matchers: read-confinement, then submit-validation.
+    assert [m.matcher for m in opts.hooks["PreToolUse"]] == [
+        "Read|Grep|Glob",
+        "mcp__cognit__submit_quiz",
+    ]
     # PR context reaches the prompt.
     assert "feat/x" in seen["prompt"]
 
@@ -194,11 +195,11 @@ def test_read_confinement_hook_denies_paths_outside_repo() -> None:
     assert not denied(run("Glob", {"pattern": "**/*.py"}))
 
 
-def test_generate_quiz_outline_registers_pr_diff_and_submit_tools(
+def test_draft_quiz_registers_pr_diff_and_submit_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Two MCP tools must be registered: `pr_diff` (fetches the diff) and the terminal
-    `submit_quiz_outline`. The `pr_diff` handler delegates to `fetch_pr_diff`."""
+    `submit_quiz`. The `pr_diff` handler delegates to `fetch_pr_diff`."""
     recorded: dict[str, Any] = {}
     real_create = llm_mod.create_sdk_mcp_server
 
@@ -206,7 +207,7 @@ def test_generate_quiz_outline_registers_pr_diff_and_submit_tools(
         recorded["tools"] = kwargs["tools"]
         return real_create(*args, **kwargs)
 
-    canned = QuizOutline(
+    canned = QuizDraft(
         questions=[MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A")]
     )
 
@@ -219,11 +220,11 @@ def test_generate_quiz_outline_registers_pr_diff_and_submit_tools(
     monkeypatch.setattr(llm_mod, "fetch_pr_diff", lambda url: f"DIFF-FOR::{url}")
 
     llm = ClaudeAgentLLM()
-    out = llm.generate_quiz_outline(_req())
+    out = llm.draft_quiz(_req())
     assert out == canned
 
     tools = recorded["tools"]
-    assert [t.name for t in tools] == ["pr_diff", "submit_quiz_outline"]
+    assert [t.name for t in tools] == ["pr_diff", "submit_quiz"]
 
     # The pr_diff tool, when invoked by the agent, returns the (filtered) diff text.
     pr_diff_tool = next(t for t in tools if t.name == "pr_diff")
@@ -231,14 +232,14 @@ def test_generate_quiz_outline_registers_pr_diff_and_submit_tools(
     assert result["content"][0]["text"] == "DIFF-FOR::https://github.com/o/r/pull/7"
 
 
-def test_generate_quiz_outline_raises_when_submit_not_called(
+def test_draft_quiz_raises_when_submit_not_called(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(ClaudeAgentLLM, "_drain_agent", _make_drain_that_does_nothing())
     monkeypatch.setattr(llm_mod, "_repo_root", lambda: "/repo")
     llm = ClaudeAgentLLM()
-    with pytest.raises(RuntimeError, match="submit_quiz_outline"):
-        llm.generate_quiz_outline(_req())
+    with pytest.raises(RuntimeError, match="submit_quiz"):
+        llm.draft_quiz(_req())
 
 
 # --- generate_mermaid_set ---
