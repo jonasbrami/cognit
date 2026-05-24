@@ -50,7 +50,7 @@ from claude_agent_sdk import (
 from pydantic import ValidationError
 
 from cognit.engine.llm import GenerateRequest
-from cognit.engine.mermaid import is_valid_mermaid, uniformity_failures
+from cognit.engine.mermaid import distinctness_failure, is_valid_mermaid, uniformity_failures
 from cognit.engine.models import MermaidQuestion, QuizDraft
 from cognit.ghio.diff import fetch_pr_diff, split_diff, summarize_diff
 
@@ -189,6 +189,7 @@ def _submit_validation_hook(
                 if not await asyncio.to_thread(is_valid_mermaid, src, strict=False):
                     failures.append(f"question {q.id!r} option {label}: invalid mermaid syntax")
             failures.extend(f"question {q.id!r}: {m}" for m in uniformity_failures(q.options))
+            failures.extend(f"question {q.id!r}: {m}" for m in distinctness_failure(q.options))
 
         if failures:
             reason = "Fix these and resubmit the whole quiz:\n- " + "\n- ".join(failures)

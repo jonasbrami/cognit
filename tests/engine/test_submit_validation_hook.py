@@ -34,10 +34,25 @@ def test_matcher_targets_the_submit_tool() -> None:
     assert _submit_validation_hook(None).matcher == "mcp__cognit__submit_quiz"
 
 
+DISTINCT = {
+    "A": "flowchart LR\n  A-->B-->C",
+    "B": "flowchart LR\n  A-->C-->B",
+    "C": "flowchart LR\n  B-->A-->C",
+    "D": "flowchart LR\n  C-->B-->A",
+}
+
+
 def test_valid_quiz_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(llm_mod, "is_valid_mermaid", lambda src, strict=False: True)
-    out = _run({"questions": [_mermaid_q({"A": VALID, "B": VALID, "C": VALID, "D": VALID})]})
+    out = _run({"questions": [_mermaid_q(DISTINCT)]})
     assert out == {}
+
+
+def test_identical_diagrams_denied(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(llm_mod, "is_valid_mermaid", lambda src, strict=False: True)
+    out = _run({"questions": [_mermaid_q({"A": VALID, "B": VALID, "C": VALID, "D": VALID})]})
+    assert _denied(out)
+    assert "distinct" in out["hookSpecificOutput"]["permissionDecisionReason"]
 
 
 def test_invalid_mermaid_denied(monkeypatch: pytest.MonkeyPatch) -> None:
