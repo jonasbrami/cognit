@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file. The format 
   - `/publish` now requires a prior `/submit` (returns 400 otherwise) because the inlined comment needs the cached answers.
   - Older PRs may still have legacy `<!-- cognit:quiz v1 -->` comments; they're dormant and harmless. New runs ignore them.
 - **BREAKING — CLI collapsed to a single `cognit take` command.** `take` now auto-generates the quiz comment on the PR if none exists yet (calls the LLM with the diff, posts the rendered markdown), then opens the browser and grades in-session as before. The author runs one command instead of three. New flags on `take`: `--min-diff-lines` (default 50) and `--max-diff-lines` (default 2000) inherit from the old `cognit generate`. The engine layer (`engine/generate.py`, `engine/grade.py`) is unchanged — a future webhook or GitHub App can still call it directly.
-- **UI redesign**: `cognit take` now uses a github-native design — replaces the editorial (paper/serif/narrow) UI. Spec in `UI-REDESIGN.md`.
+- **UI redesign**: `cognit take` now uses a github-native design — replaces the editorial (paper/serif/narrow) UI.
 
 ### Added
 - `/publish` endpoint now returns `comment_url` so the UI can deep-link to the posted comment.
