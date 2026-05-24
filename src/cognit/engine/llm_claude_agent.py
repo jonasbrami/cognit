@@ -157,6 +157,9 @@ def _submit_validation_hook(
     strict=False); (4) the 4 diagrams are visually uniform (uniformity_failures).
     Emits `checking…` / `⟳ fixing…` to `on_event` so the activity feed shows it.
     """
+    # Tracks the single "no mermaid" denial per draft_quiz call: deny once to make
+    # the agent consciously decide, accept the next submit (reasoned skip).
+    no_mermaid_denials = [0]
 
     async def _hook(
         hook_input: dict[str, Any], tool_use_id: str | None, context: Any
@@ -194,6 +197,18 @@ def _submit_validation_hook(
         if failures:
             reason = "Fix these and resubmit the whole quiz:\n- " + "\n- ".join(failures)
             return _deny_submit(reason, on_event, len(failures))
+
+        has_mermaid = any(isinstance(q, MermaidQuestion) for q in draft.questions)
+        if not has_mermaid and no_mermaid_denials[0] == 0:
+            no_mermaid_denials[0] += 1
+            return _deny_submit(
+                "This change may have control/data flow worth a diagram, but the quiz has no "
+                "mermaid question. Add one that tests how the flow works — OR, if the change is "
+                "genuinely local (a value, a rename, a one-line edit) with no interaction worth "
+                "diagramming, resubmit the quiz unchanged and it will be accepted.",
+                on_event,
+                1,
+            )
         return {}
 
     return HookMatcher(matcher=f"mcp__cognit__{_TOOL_SUBMIT}", hooks=[cast(HookCallback, _hook)])

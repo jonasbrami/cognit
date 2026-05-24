@@ -75,16 +75,23 @@ def test_shape_invalid_denied() -> None:
     assert _denied(out)
 
 
-def test_non_mermaid_quiz_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_no_mermaid_denied_once_then_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(llm_mod, "is_valid_mermaid", lambda src, strict=False: True)
-    out = _run(
-        {
+    matcher = _submit_validation_hook(None)
+    hook = matcher.hooks[0]
+    payload = {
+        "tool_name": f"mcp__cognit__{_TOOL_SUBMIT}",
+        "tool_input": {
             "questions": [
                 {"type": "mcq", "id": "q1", "prompt": "?", "options": ["x", "y"], "answer": "x"}
             ]
-        }
-    )
-    assert out == {}
+        },
+    }
+    first = asyncio.run(hook(payload, None, {}))
+    assert _denied(first)
+    assert "diagram" in first["hookSpecificOutput"]["permissionDecisionReason"]
+    second = asyncio.run(hook(payload, None, {}))
+    assert second == {}  # reasoned resubmit accepted
 
 
 def test_emits_validation_events(monkeypatch: pytest.MonkeyPatch) -> None:
