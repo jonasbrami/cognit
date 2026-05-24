@@ -141,6 +141,7 @@ def test_draft_quiz_restricts_to_readonly_tools(
 
     monkeypatch.setattr(ClaudeAgentLLM, "_drain_agent", fake_drain)
     monkeypatch.setattr(llm_mod, "_repo_root", lambda: "/repo/root")
+    monkeypatch.setattr(llm_mod, "fetch_pr_diff", lambda url: _FAKE_DIFF)
 
     llm = ClaudeAgentLLM()
     out = llm.draft_quiz(_req())
@@ -152,7 +153,6 @@ def test_draft_quiz_restricts_to_readonly_tools(
         "Read",
         "Grep",
         "Glob",
-        "mcp__cognit__pr_overview",
         "mcp__cognit__file_diff",
         "mcp__cognit__submit_quiz",
     ]
@@ -164,8 +164,9 @@ def test_draft_quiz_restricts_to_readonly_tools(
         "Read|Grep|Glob",
         "mcp__cognit__submit_quiz",
     ]
-    # PR context reaches the prompt.
+    # PR context + the changed-files overview (folded in, no pr_overview tool) reach the prompt.
     assert "feat/x" in seen["prompt"]
+    assert "src/a.py | +2 -1" in seen["prompt"]
 
 
 def test_read_confinement_hook_denies_paths_outside_repo() -> None:
@@ -202,12 +203,11 @@ _FAKE_DIFF = (
 )
 
 
-def test_draft_quiz_registers_overview_file_diff_and_submit_tools(
+def test_draft_quiz_folds_overview_and_registers_file_diff_submit(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Three MCP tools are registered: `pr_overview` (stat), `file_diff` (one file's
-    hunks on demand), and the terminal `submit_quiz`. The diff is fetched once and
-    served piecewise — never as one blob."""
+    """The diff is fetched once; its stat overview is folded into the prompt, and only
+    `file_diff` + `submit_quiz` are registered (no `pr_overview` tool/round-trip)."""
     recorded: dict[str, Any] = {}
     real_create = llm_mod.create_sdk_mcp_server
 
@@ -216,8 +216,10 @@ def test_draft_quiz_registers_overview_file_diff_and_submit_tools(
         return real_create(*args, **kwargs)
 
     canned = QuizDraft(questions=[MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A")])
+    seen: dict[str, Any] = {}
 
     def fake_drain(self: ClaudeAgentLLM, *, prompt: str, options: Any, handler: Any) -> None:
+        seen["prompt"] = prompt
         asyncio.run(handler(canned.model_dump()))
 
     fetched: list[str] = []
@@ -235,14 +237,12 @@ def test_draft_quiz_registers_overview_file_diff_and_submit_tools(
     out = llm.draft_quiz(_req())
     assert out == canned
 
+    # Only two MCP tools; the overview lives in the prompt, not a tool.
     tools = {t.name: t for t in recorded["tools"]}
-    assert list(tools) == ["pr_overview", "file_diff", "submit_quiz"]
-
-    # pr_overview returns the stat (files + counts), not the raw diff.
-    overview = asyncio.run(tools["pr_overview"].handler({}))["content"][0]["text"]
-    assert "src/a.py | +2 -1" in overview
-    assert "src/b.py | +1 -1" in overview
-    assert "@@" not in overview  # it's a summary, not hunks
+    assert list(tools) == ["file_diff", "submit_quiz"]
+    assert "src/a.py | +2 -1" in seen["prompt"]
+    assert "src/b.py | +1 -1" in seen["prompt"]
+    assert "@@" not in seen["prompt"]  # the folded overview is a stat, not hunks
 
     # file_diff returns one file's hunks; basename match is tolerated.
     sect = asyncio.run(tools["file_diff"].handler({"path": "a.py"}))["content"][0]["text"]
@@ -253,6 +253,9 @@ def test_draft_quiz_registers_overview_file_diff_and_submit_tools(
     miss = asyncio.run(tools["file_diff"].handler({"path": "nope.py"}))["content"][0]["text"]
     assert "No changed file matches" in miss
 
+    # The diff is fetched exactly once, eagerly, up front.
+    assert fetched == ["https://github.com/o/r/pull/7"]
+
     # The diff is fetched once and reused across overview + file_diff calls.
     assert len(fetched) == 1
 
@@ -262,6 +265,7 @@ def test_draft_quiz_raises_when_submit_not_called(
 ) -> None:
     monkeypatch.setattr(ClaudeAgentLLM, "_drain_agent", _make_drain_that_does_nothing())
     monkeypatch.setattr(llm_mod, "_repo_root", lambda: "/repo")
+    monkeypatch.setattr(llm_mod, "fetch_pr_diff", lambda url: _FAKE_DIFF)
     llm = ClaudeAgentLLM()
     with pytest.raises(RuntimeError, match="submit_quiz"):
         llm.draft_quiz(_req())
