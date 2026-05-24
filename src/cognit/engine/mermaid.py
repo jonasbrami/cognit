@@ -272,6 +272,26 @@ def _edge_count(source: str) -> int:
     return len(_EDGE_OP.findall(source))
 
 
+def distinctness_failure(options: dict[str, str]) -> list[str]:
+    """A failure if the option diagrams are not all distinct, else [].
+
+    `uniformity_failures` keeps the four diagrams superficially *similar*; this
+    guards the opposite degenerate case — four *identical* sources (modulo
+    whitespace) pass uniformity trivially but give the reader no real distractors,
+    so the question is unanswerable-as-a-quiz. Compares whitespace-normalized text.
+    """
+    srcs = list(options.values())
+    if len(srcs) < 2:
+        return []
+    normalized = [" ".join(s.split()) for s in srcs]
+    if len(set(normalized)) < len(normalized):
+        return [
+            "the option diagrams must all be distinct; some are identical "
+            "(identical diagrams give the reader no real choice)"
+        ]
+    return []
+
+
 def uniformity_failures(options: dict[str, str]) -> list[str]:
     """Reasons the option diagrams are NOT visually uniform, or [] if they are.
 

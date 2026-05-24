@@ -1,4 +1,4 @@
-from cognit.engine.mermaid import uniformity_failures
+from cognit.engine.mermaid import distinctness_failure, uniformity_failures
 
 
 def _opts(*srcs: str) -> dict[str, str]:
@@ -34,3 +34,25 @@ def test_size_outlier_flagged() -> None:
 
 def test_under_two_options_is_noop() -> None:
     assert uniformity_failures({"A": "flowchart LR\nA-->B"}) == []
+
+
+def test_distinctness_flags_four_identical_diagrams():
+    src = "flowchart LR\n  A-->B-->C"
+    fails = distinctness_failure({"A": src, "B": src, "C": src, "D": src})
+    assert fails and "distinct" in fails[0]
+
+
+def test_distinctness_ignores_whitespace_only_differences():
+    a = "flowchart LR\n  A-->B"
+    b = "flowchart LR\n    A-->B"  # same diagram, extra indentation
+    assert distinctness_failure({"A": a, "B": b})  # treated as identical -> failure
+
+
+def test_distinctness_passes_when_all_distinct():
+    opts = {
+        "A": "flowchart LR\n  A-->B-->C",
+        "B": "flowchart LR\n  A-->C-->B",
+        "C": "flowchart LR\n  B-->A-->C",
+        "D": "flowchart LR\n  C-->B-->A",
+    }
+    assert distinctness_failure(opts) == []
