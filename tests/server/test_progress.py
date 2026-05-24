@@ -28,8 +28,8 @@ def _app_generating() -> object:
 def test_progress_replays_events_from_cursor() -> None:
     app = _app_generating()
     broker = app.state.broker  # type: ignore[attr-defined]
-    broker.emit({"kind": "step", "tool": "submit_quiz_outline"})
-    broker.emit({"kind": "text", "text": "picking…", "tool": "submit_quiz_outline"})
+    broker.emit({"kind": "step", "tool": "submit_quiz"})
+    broker.emit({"kind": "text", "text": "picking…", "tool": "submit_quiz"})
 
     client = TestClient(app)
     r = client.get("/progress?cursor=0")

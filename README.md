@@ -71,15 +71,16 @@ sequenceDiagram
   User->>CLI: cognit take
   CLI->>gh: pr view (title, body)
   gh-->>CLI: title, body
-  CLI->>Agent: outline call (title, body)
+  CLI->>Agent: draft_quiz call (title, body)
   Agent->>gh: pr_diff tool (strips vendored/lock/binary)
   gh-->>Agent: filtered diff
   Agent->>Agent: Read/Grep/Glob on working tree
-  Agent-->>CLI: QuizOutline + mermaid specs
-  loop per mermaid placeholder
-    CLI->>Agent: artisan call
-    Agent-->>CLI: 4 diagrams + correct key
+  Agent->>Agent: submit_quiz (complete quiz, mermaid fully rendered)
+  Note over Agent: PreToolUse hook validates shape +<br/>mermaid syntax + diagram uniformity
+  loop until diagrams valid (same turn)
+    Agent->>Agent: hook denies → self-correct → resubmit
   end
+  Agent-->>CLI: QuizDraft (rendered diagrams + correct keys)
   CLI->>Web: serve quiz (inline JSON)
   User->>Web: answer + submit
   Web->>CLI: POST /submit

@@ -166,6 +166,36 @@ def _prepare_generation(
     )
 
 
+def _write_transcript(pr_url: str, pr_number: int, broker: Broker) -> None:
+    """If COGNIT_TRANSCRIPT_DIR is set, dump the run's activity feed (Claude's
+    thinking, tool calls + args, validation events, final phase) to a JSON file for
+    offline analysis/optimization. Opt-in so normal runs stay side-effect-free; a
+    write failure is logged and swallowed so it can never break a generation."""
+    dir_env = os.environ.get("COGNIT_TRANSCRIPT_DIR")
+    if not dir_env:
+        return
+    try:
+        out_dir = Path(dir_env).expanduser()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        snap = broker.snapshot(0)
+        path = out_dir / f"{time.strftime('%Y%m%d-%H%M%S')}-pr{pr_number}.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "pr_url": pr_url,
+                    "pr_number": pr_number,
+                    "phase": snap["phase"],
+                    "error": snap.get("error"),
+                    "events": snap["events"],
+                },
+                indent=2,
+            )
+        )
+        typer.echo(f"transcript written to {path}", err=True)
+    except Exception as e:  # never let transcript logging break a run
+        logger.debug("transcript write failed: %s", e)
+
+
 def _run_generation(
     broker: Broker,
     *,
@@ -197,11 +227,13 @@ def _run_generation(
         # polling `generating` forever.
         typer.echo(f"quiz generation failed: {e}", err=True)
         broker.set_error(str(e))
+        _write_transcript(pr_url, prep.pr_number, broker)
         return
     cache_path = _cache_path_for(pr_url)
     cache_path.write_text(quiz.model_dump_json())
     logger.debug("quiz cached at %s (%d bytes)", cache_path, cache_path.stat().st_size)
     broker.set_ready(quiz)
+    _write_transcript(pr_url, prep.pr_number, broker)
 
 
 def _load_cached(pr_url: str) -> Quiz | None:

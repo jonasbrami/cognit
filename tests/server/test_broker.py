@@ -29,8 +29,8 @@ def test_new_broker_defaults_to_generating() -> None:
 
 def test_emit_appends_and_snapshot_slices_from_cursor() -> None:
     b = Broker()
-    b.emit({"kind": "step", "tool": "submit_quiz_outline"})
-    b.emit({"kind": "text", "text": "thinking…", "tool": "submit_quiz_outline"})
+    b.emit({"kind": "step", "tool": "submit_quiz"})
+    b.emit({"kind": "text", "text": "thinking…", "tool": "submit_quiz"})
 
     first = b.snapshot(0)
     assert [e["kind"] for e in first["events"]] == ["step", "text"]

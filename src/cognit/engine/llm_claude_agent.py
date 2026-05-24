@@ -40,20 +40,23 @@ from claude_agent_sdk import (
     HookMatcher,
     ProcessError,
     TextBlock,
+    ThinkingBlock,
     ToolUseBlock,
     create_sdk_mcp_server,
     query,
     tool,
 )
 
-from cognit.engine.llm import GenerateRequest
-from cognit.engine.models import MermaidSet, MermaidSpec, QuizOutline
-from cognit.ghio.diff import fetch_pr_diff
+from pydantic import ValidationError
 
-_TOOL_OUTLINE = "submit_quiz_outline"
-_TOOL_MERMAID = "submit_mermaid_set"
+from cognit.engine.llm import GenerateRequest
+from cognit.engine.mermaid import distinctness_failure, is_valid_mermaid, uniformity_failures
+from cognit.engine.models import MCQQuestion, MermaidQuestion, QuizDraft, TrueFalseQuestion
+from cognit.ghio.diff import fetch_pr_diff, split_diff, summarize_diff
+
+_TOOL_SUBMIT = "submit_quiz"
 _TOOL_GRADE = "submit_grade"
-_TOOL_PR_DIFF = "pr_diff"
+_TOOL_FILE_DIFF = "file_diff"
 
 # Read-only built-in tools the outline agent may use to inspect the working tree.
 # These are passed via `tools=` (availability), NOT just `allowed_tools=`.
@@ -68,10 +71,6 @@ _ToolHandler = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
 
 def _load_prompt(name: str) -> str:
     return resources.files("cognit.engine.prompts").joinpath(name).read_text()
-
-
-def _format_misconceptions(misconceptions: list[str]) -> str:
-    return "\n".join(f"- {m}" for m in misconceptions)
 
 
 def _repo_root() -> str:
@@ -131,6 +130,98 @@ def _read_confinement_hook(repo_root: str) -> HookMatcher:
     # `_hook` takes the raw control-protocol dict (accurate to runtime); cast to the
     # SDK's TypedDict-union HookCallback signature.
     return HookMatcher(matcher="Read|Grep|Glob", hooks=[cast(HookCallback, _hook)])
+
+
+def _deny_submit(
+    reason: str, on_event: Callable[[dict[str, Any]], None] | None, n: int
+) -> dict[str, Any]:
+    if on_event is not None:
+        on_event({"kind": "text", "text": f"⟳ fixing {n} issue(s)…", "tool": _TOOL_SUBMIT})
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }
+
+
+def _submit_validation_hook(
+    on_event: Callable[[dict[str, Any]], None] | None = None,
+) -> HookMatcher:
+    """PreToolUse hook on the submit tool: validates the whole quiz at submit time
+    and denies with a precise reason so the agent self-corrects in-turn.
+
+    Checks, in order: (1) QuizDraft Pydantic shape; (2) per mermaid question —
+    exactly 4 options, `answer` in keys; (3) each diagram parses (is_valid_mermaid,
+    strict=False); (4) the 4 diagrams are visually uniform (uniformity_failures);
+    (5) the 4 diagrams are all distinct (distinctness_failure). Finally, a quiz with
+    no mermaid question at all is denied once (a soft nudge to include a diagram).
+    Emits `checking…` / `⟳ fixing…` to `on_event` so the activity feed shows it.
+    """
+    # Tracks the single "no mermaid" denial per draft_quiz call: deny once to make
+    # the agent consciously decide, accept the next submit (reasoned skip).
+    no_mermaid_denials = [0]
+
+    async def _hook(
+        hook_input: dict[str, Any], tool_use_id: str | None, context: Any
+    ) -> dict[str, Any]:
+        if hook_input.get("tool_name") != f"mcp__cognit__{_TOOL_SUBMIT}":
+            return {}
+        tool_input = hook_input.get("tool_input") or {}
+        if on_event is not None:
+            on_event({"kind": "text", "text": "checking diagrams…", "tool": _TOOL_SUBMIT})
+
+        try:
+            draft = QuizDraft.model_validate(tool_input)
+        except ValidationError as e:
+            return _deny_submit(f"the submitted quiz is malformed: {e.errors()}", on_event, 1)
+
+        failures: list[str] = []
+        for q in draft.questions:
+            if (
+                isinstance(q, (MCQQuestion, TrueFalseQuestion, MermaidQuestion))
+                and not q.explanation.strip()
+            ):
+                failures.append(
+                    f"question {q.id!r}: missing a one-sentence `explanation` "
+                    "(shown to the reader after they answer)"
+                )
+            if not isinstance(q, MermaidQuestion):
+                continue
+            if len(q.options) != 4:
+                failures.append(
+                    f"question {q.id!r}: must have exactly 4 options, has {len(q.options)}"
+                )
+                continue
+            if q.answer not in q.options:
+                failures.append(
+                    f"question {q.id!r}: answer {q.answer!r} is not one of the option keys"
+                )
+            for label, src in q.options.items():
+                if not await asyncio.to_thread(is_valid_mermaid, src, strict=False):
+                    failures.append(f"question {q.id!r} option {label}: invalid mermaid syntax")
+            failures.extend(f"question {q.id!r}: {m}" for m in uniformity_failures(q.options))
+            failures.extend(f"question {q.id!r}: {m}" for m in distinctness_failure(q.options))
+
+        if failures:
+            reason = "Fix these and resubmit the whole quiz:\n- " + "\n- ".join(failures)
+            return _deny_submit(reason, on_event, len(failures))
+
+        has_mermaid = any(isinstance(q, MermaidQuestion) for q in draft.questions)
+        if not has_mermaid and no_mermaid_denials[0] == 0:
+            no_mermaid_denials[0] += 1
+            return _deny_submit(
+                "This change may have control/data flow worth a diagram, but the quiz has no "
+                "mermaid question. Add one that tests how the flow works — OR, if the change is "
+                "genuinely local (a value, a rename, a one-line edit) with no interaction worth "
+                "diagramming, resubmit the quiz unchanged and it will be accepted.",
+                on_event,
+                1,
+            )
+        return {}
+
+    return HookMatcher(matcher=f"mcp__cognit__{_TOOL_SUBMIT}", hooks=[cast(HookCallback, _hook)])
 
 
 class ClaudeAgentLLM:
@@ -257,57 +348,92 @@ class ClaudeAgentLLM:
         asyncio.run(_drain())
 
     def _forward_activity(self, msg: Any) -> None:
-        """Forward an assistant message's text + tool calls to `self.on_event`.
+        """Forward an assistant message's reasoning, prose, and tool calls to `self.on_event`.
 
-        No-op unless a sink is attached. Thinking blocks, tool results, and
-        non-assistant messages (results/system) are intentionally ignored — the
-        feed shows what Claude says and which tools it runs, not its reasoning.
+        No-op unless a sink is attached. Tool results and non-assistant messages
+        (results/system) are ignored. Thinking blocks ARE forwarded (as `thinking`
+        events) so the live feed shows Claude's reasoning during the long silent
+        stretches between tool calls — otherwise the feed looks frozen while the
+        agent reads the diff and decides what to inspect.
         """
         if self.on_event is None or not isinstance(msg, AssistantMessage):
             return
         for block in msg.content:
-            if isinstance(block, TextBlock):
+            if isinstance(block, ThinkingBlock):
+                self.on_event(
+                    {"kind": "thinking", "text": block.thinking, "tool": self._current_tool}
+                )
+            elif isinstance(block, TextBlock):
                 self.on_event({"kind": "text", "text": block.text, "tool": self._current_tool})
             elif isinstance(block, ToolUseBlock):
-                self.on_event({"kind": "tool_use", "name": block.name, "tool": self._current_tool})
+                event = {"kind": "tool_use", "name": block.name, "tool": self._current_tool}
+                # Surface the most informative argument so the feed shows WHICH file/pattern
+                # the agent is inspecting (e.g. "Read mermaid.py"), not just the tool name.
+                args = block.input if isinstance(block.input, dict) else {}
+                detail = args.get("file_path") or args.get("path") or args.get("pattern")
+                if detail:
+                    event["detail"] = str(detail)
+                self.on_event(event)
 
-    def generate_quiz_outline(self, req: GenerateRequest) -> QuizOutline:
-        """Stage 1 (agentic): the agent fetches the PR diff and reads the working tree
-        with read-only tools, pulling only what it needs, then submits the outline."""
+    def draft_quiz(self, req: GenerateRequest) -> QuizDraft:
+        """Single-stage (agentic): the agent fetches the diff, reads the working tree
+        with read-only tools, renders any mermaid diagrams itself, and submits the
+        complete quiz. The submit-validation hook gates the submission, so the agent
+        self-corrects invalid/non-uniform diagrams within the same turn."""
         system = _load_prompt("system_generate.txt")
+        captured: list[dict[str, Any]] = []
+
+        # Announce the phase so the streamed feed labels it (mirrors `_invoke_tool`;
+        # this path drives the SDK directly so it must tag activity itself).
+        self._current_tool = _TOOL_SUBMIT
+        if self.on_event is not None:
+            self.on_event({"kind": "step", "tool": _TOOL_SUBMIT})
+
+        # Fetch the diff once and split it by file. The small stat overview is folded
+        # straight into the prompt (no round-trip); the agent pulls individual files'
+        # hunks on demand via `file_diff`, so the whole diff never lands in context at once.
+        full_diff = fetch_pr_diff(req.pr_url)
+        sections = split_diff(full_diff)
         user = _load_prompt("generate.txt").format(
             pr_number=req.pr_number,
             branch=req.branch,
             pr_title=req.pr_title,
             pr_body=req.pr_body,
+            diff_overview=summarize_diff(full_diff),
         )
-        captured: list[dict[str, Any]] = []
 
-        # Announce the phase so the streamed feed labels it (mirrors `_invoke_tool`;
-        # this path drives the SDK directly so it must tag activity itself).
-        self._current_tool = _TOOL_OUTLINE
-        if self.on_event is not None:
-            self.on_event({"kind": "step", "tool": _TOOL_OUTLINE})
-
-        async def pr_diff_handler(args: dict[str, Any]) -> dict[str, Any]:
-            return {"content": [{"type": "text", "text": fetch_pr_diff(req.pr_url)}]}
+        async def file_diff_handler(args: dict[str, Any]) -> dict[str, Any]:
+            path = str(args.get("path", "")).strip()
+            section = sections.get(path)
+            if section is None:  # tolerate basename / repo-relative variants
+                hits = [p for p in sections if p.endswith(path) or p.rsplit("/", 1)[-1] == path]
+                section = sections[hits[0]] if len(hits) == 1 else None
+            if section is None:
+                listing = ", ".join(sorted(sections)) or "(none)"
+                section = f"No changed file matches {path!r}. Changed files: {listing}"
+            return {"content": [{"type": "text", "text": section}]}
 
         async def submit_handler(args: dict[str, Any]) -> dict[str, Any]:
             captured.append(args)
             return {"content": [{"type": "text", "text": "ok"}]}
 
-        pr_diff_tool = tool(
-            _TOOL_PR_DIFF,
-            "Fetch the PR's unified diff. Vendored/minified/lock/binary files are "
-            "already stripped. Call this first to see what changed.",
-            {"type": "object", "properties": {}},
-        )(pr_diff_handler)
+        file_diff_tool = tool(
+            _TOOL_FILE_DIFF,
+            "Fetch the diff hunks for ONE changed file. Pass a `path` from the changed-files "
+            "list in your task prompt. Only pull files you'll actually quiz on.",
+            {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        )(file_diff_handler)
         submit_tool = tool(
-            _TOOL_OUTLINE,
-            "Submit the generated quiz outline.",
-            QuizOutline.model_json_schema(),
+            _TOOL_SUBMIT,
+            "Submit the complete quiz, mermaid diagrams fully rendered.",
+            QuizDraft.model_json_schema(),
         )(submit_handler)
-        server = create_sdk_mcp_server(name="cognit", tools=[pr_diff_tool, submit_tool])
+        server = create_sdk_mcp_server(name="cognit", tools=[file_diff_tool, submit_tool])
 
         repo_root = _repo_root()
         self._run_agent(
@@ -316,58 +442,25 @@ class ClaudeAgentLLM:
             server=server,
             allowed_tools=[
                 *_OUTLINE_BUILTIN_TOOLS,
-                f"mcp__cognit__{_TOOL_PR_DIFF}",
-                f"mcp__cognit__{_TOOL_OUTLINE}",
+                f"mcp__cognit__{_TOOL_FILE_DIFF}",
+                f"mcp__cognit__{_TOOL_SUBMIT}",
             ],
             tools=_OUTLINE_BUILTIN_TOOLS,
             max_turns=_OUTLINE_MAX_TURNS,
             cwd=repo_root,
             handler=submit_handler,
-            # Confine the read tools to the checkout (bypassPermissions skips rules).
-            hooks={"PreToolUse": [_read_confinement_hook(repo_root)]},
+            # Two PreToolUse matchers: confine reads to the checkout, and validate the
+            # submitted quiz (mermaid syntax + uniformity) so the agent fixes it in-turn.
+            hooks={
+                "PreToolUse": [
+                    _read_confinement_hook(repo_root),
+                    _submit_validation_hook(self.on_event),
+                ]
+            },
         )
         if not captured:
-            raise RuntimeError(f"agent did not call {_TOOL_OUTLINE}")
-        return QuizOutline.model_validate(captured[0])
-
-    def generate_mermaid_set(self, spec: MermaidSpec, req: GenerateRequest) -> MermaidSet:
-        system = _load_prompt("system_mermaid.txt")
-        user = _load_prompt("mermaid.txt").format(
-            diagram_type=spec.diagram_type,
-            correct_description=spec.correct_description,
-            misconceptions=_format_misconceptions(spec.misconceptions),
-            style_notes=spec.style_notes,
-        )
-        schema: dict[str, Any] = {
-            "type": "object",
-            "properties": {
-                "options": {
-                    "type": "object",
-                    "description": "Exactly four keys A, B, C, D mapping to mermaid sources.",
-                    "properties": {
-                        "A": {"type": "string"},
-                        "B": {"type": "string"},
-                        "C": {"type": "string"},
-                        "D": {"type": "string"},
-                    },
-                    "required": ["A", "B", "C", "D"],
-                    "additionalProperties": False,
-                },
-                "correct": {"type": "string", "enum": ["A", "B", "C", "D"]},
-            },
-            "required": ["options", "correct"],
-            "additionalProperties": False,
-        }
-        args = self._invoke_tool(
-            system=system,
-            user=user,
-            tool_name=_TOOL_MERMAID,
-            tool_description="Submit 4 mermaid diagrams keyed A/B/C/D plus which is correct.",
-            tool_schema=schema,
-        )
-        if args is None:
-            raise RuntimeError(f"agent did not call {_TOOL_MERMAID}")
-        return MermaidSet.model_validate(args)
+            raise RuntimeError(f"agent did not call {_TOOL_SUBMIT}")
+        return QuizDraft.model_validate(captured[0])
 
     def grade_open(self, question_prompt: str, rubric: str, answer: str) -> tuple[int, str]:
         system = _load_prompt("system_grade.txt")

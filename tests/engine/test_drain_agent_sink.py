@@ -1,10 +1,11 @@
 """Tests for the activity sink in ClaudeAgentLLM._drain_agent.
 
 Production's `_drain_agent` drains `claude_agent_sdk.query(...)`. When `self.on_event`
-is set, it must forward each assistant `TextBlock` as a `text` event and each
-`ToolUseBlock` as a `tool_use` event, tagged with the current tool, and ignore
-thinking blocks and non-assistant messages. We mock `query` (the module-level
-import) to yield canned SDK messages without spawning a real `claude` subprocess.
+is set, it must forward each assistant `ThinkingBlock` as a `thinking` event, each
+`TextBlock` as a `text` event, and each `ToolUseBlock` as a `tool_use` event, tagged
+with the current tool, and ignore non-assistant messages. We mock `query` (the
+module-level import) to yield canned SDK messages without spawning a real `claude`
+subprocess.
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ def test_drain_agent_forwards_text_and_tool_use_events(monkeypatch: pytest.Monke
             content=[
                 TextBlock(text="picking questions…"),
                 ThinkingBlock(thinking="secret reasoning", signature="sig"),
-                ToolUseBlock(id="t1", name="Read", input={}),
+                ToolUseBlock(id="t1", name="Read", input={"file_path": "src/app.py"}),
             ],
             model="claude-sonnet-4-6",
         ),
@@ -42,13 +43,14 @@ def test_drain_agent_forwards_text_and_tool_use_events(monkeypatch: pytest.Monke
     captured: list[dict[str, Any]] = []
     llm = ClaudeAgentLLM()
     llm.on_event = captured.append
-    llm._current_tool = "submit_quiz_outline"
+    llm._current_tool = "submit_quiz"
 
     llm._drain_agent(prompt="u", options=None, handler=None)
 
     assert captured == [
-        {"kind": "text", "text": "picking questions…", "tool": "submit_quiz_outline"},
-        {"kind": "tool_use", "name": "Read", "tool": "submit_quiz_outline"},
+        {"kind": "text", "text": "picking questions…", "tool": "submit_quiz"},
+        {"kind": "thinking", "text": "secret reasoning", "tool": "submit_quiz"},
+        {"kind": "tool_use", "name": "Read", "tool": "submit_quiz", "detail": "src/app.py"},
     ]
 
 

@@ -3,7 +3,20 @@ import stat
 
 import pytest
 
-from cognit.ghio.diff import _diff_git_target_path, _filter_diff, fetch_pr_diff
+from cognit.ghio.diff import (
+    _diff_git_target_path,
+    _filter_diff,
+    fetch_pr_diff,
+    split_diff,
+    summarize_diff,
+)
+
+_TWO_FILE_DIFF = (
+    "diff --git a/src/a.py b/src/a.py\n"
+    "--- a/src/a.py\n+++ b/src/a.py\n@@ -1 +1,2 @@\n-old\n+new\n+extra\n"
+    "diff --git a/src/b.py b/src/b.py\n"
+    "--- a/src/b.py\n+++ b/src/b.py\n@@ -1 +1 @@\n-x\n+y\n"
+)
 
 
 @pytest.fixture
@@ -99,3 +112,28 @@ def test_filter_diff_keeps_source_file_with_space_in_name():
     diff = "diff --git a/my notes.py b/my notes.py\n--- a/my notes.py\n+++ b/my notes.py\n@@ -1 +1 @@\n-a\n+b\n"
     out = _filter_diff(diff)
     assert "my notes.py" in out
+
+
+def test_split_diff_keys_sections_by_target_path():
+    sections = split_diff(_TWO_FILE_DIFF)
+    assert set(sections) == {"src/a.py", "src/b.py"}
+    assert sections["src/a.py"].startswith("diff --git a/src/a.py")
+    assert "+extra" in sections["src/a.py"]
+    assert "+extra" not in sections["src/b.py"]  # sections don't bleed into each other
+
+
+def test_split_diff_empty_is_empty():
+    assert split_diff("") == {}
+
+
+def test_summarize_diff_reports_per_file_counts():
+    summary = summarize_diff(_TWO_FILE_DIFF)
+    assert "src/a.py | +2 -1" in summary
+    assert "src/b.py | +1 -1" in summary
+    # A summary, not the hunks — no diff body leaks in.
+    assert "@@" not in summary
+    assert "+extra" not in summary
+
+
+def test_summarize_diff_empty():
+    assert summarize_diff("") == "(no changed files after filtering)"

@@ -404,6 +404,13 @@ function renderResultCard(q, r, i) {
     }
   }
 
+  if (q.explanation) {
+    body.push(el("div", { class: "feedback" }, [
+      el("div", { class: "feedback__head" }, ["Why"]),
+      el("p", { text: q.explanation }),
+    ]));
+  }
+
   return el("article", { class: `file ${cls}` }, [
     el("div", { class: "file__head" }, [
       el("div", { class: "file__title", text: `Question ${i + 1}` }),
@@ -627,8 +634,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let feedCursor = 0;
 
 const TOOL_LABELS = {
-  submit_quiz_outline: "Generating outline",
-  submit_mermaid_set: "Drawing diagram",
+  submit_quiz: "Generating quiz",
   submit_grade: "Grading answer",
 };
 
@@ -641,9 +647,16 @@ function appendTermLine(feed, ev) {
       el("span", { class: "term__label", text: TOOL_LABELS[ev.tool] || ev.tool }),
     ]);
   } else if (ev.kind === "tool_use") {
-    line = el("div", { class: "term__line term__tool" }, [
+    const parts = [
       el("span", { class: "term__prompt", text: "·" }),
       el("span", { class: "term__dim", text: ev.name }),
+    ];
+    if (ev.detail) parts.push(el("span", { class: "term__text", text: " " + ev.detail }));
+    line = el("div", { class: "term__line term__tool" }, parts);
+  } else if (ev.kind === "thinking" && ev.text.trim() !== "") {
+    line = el("div", { class: "term__line term__think" }, [
+      el("span", { class: "term__prompt", text: "✳" }),
+      el("span", { class: "term__dim", text: ev.text }),
     ]);
   } else if (ev.kind === "text" && ev.text.trim() !== "") {
     line = el("div", { class: "term__line" }, [
