@@ -46,11 +46,15 @@ from claude_agent_sdk import (
     tool,
 )
 
+from pydantic import ValidationError
+
 from cognit.engine.llm import GenerateRequest
-from cognit.engine.models import MermaidSet, MermaidSpec, QuizOutline
+from cognit.engine.mermaid import is_valid_mermaid, uniformity_failures
+from cognit.engine.models import MermaidQuestion, MermaidSet, MermaidSpec, QuizDraft, QuizOutline
 from cognit.ghio.diff import fetch_pr_diff
 
 _TOOL_OUTLINE = "submit_quiz_outline"
+_TOOL_SUBMIT = "submit_quiz"
 _TOOL_MERMAID = "submit_mermaid_set"
 _TOOL_GRADE = "submit_grade"
 _TOOL_PR_DIFF = "pr_diff"
@@ -131,6 +135,72 @@ def _read_confinement_hook(repo_root: str) -> HookMatcher:
     # `_hook` takes the raw control-protocol dict (accurate to runtime); cast to the
     # SDK's TypedDict-union HookCallback signature.
     return HookMatcher(matcher="Read|Grep|Glob", hooks=[cast(HookCallback, _hook)])
+
+
+def _deny_submit(
+    reason: str, on_event: Callable[[dict[str, Any]], None] | None, n: int
+) -> dict[str, Any]:
+    if on_event is not None:
+        on_event({"kind": "text", "text": f"⟳ fixing {n} issue(s)…", "tool": _TOOL_SUBMIT})
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "deny",
+            "permissionDecisionReason": reason,
+        }
+    }
+
+
+def _submit_validation_hook(
+    on_event: Callable[[dict[str, Any]], None] | None = None,
+) -> HookMatcher:
+    """PreToolUse hook on the submit tool: validates the whole quiz at submit time
+    and denies with a precise reason so the agent self-corrects in-turn.
+
+    Checks, in order: (1) QuizDraft Pydantic shape; (2) per mermaid question —
+    exactly 4 options, `answer` in keys; (3) each diagram parses (is_valid_mermaid,
+    strict=False); (4) the 4 diagrams are visually uniform (uniformity_failures).
+    Emits `checking…` / `⟳ fixing…` to `on_event` so the activity feed shows it.
+    """
+
+    async def _hook(
+        hook_input: dict[str, Any], tool_use_id: str | None, context: Any
+    ) -> dict[str, Any]:
+        if hook_input.get("tool_name") != f"mcp__cognit__{_TOOL_SUBMIT}":
+            return {}
+        tool_input = hook_input.get("tool_input") or {}
+        if on_event is not None:
+            on_event({"kind": "text", "text": "checking diagrams…", "tool": _TOOL_SUBMIT})
+
+        try:
+            draft = QuizDraft.model_validate(tool_input)
+        except ValidationError as e:
+            return _deny_submit(f"the submitted quiz is malformed: {e.errors()}", on_event, 1)
+
+        failures: list[str] = []
+        for q in draft.questions:
+            if not isinstance(q, MermaidQuestion):
+                continue
+            if len(q.options) != 4:
+                failures.append(
+                    f"question {q.id!r}: must have exactly 4 options, has {len(q.options)}"
+                )
+                continue
+            if q.answer not in q.options:
+                failures.append(
+                    f"question {q.id!r}: answer {q.answer!r} is not one of the option keys"
+                )
+            for label, src in q.options.items():
+                if not await asyncio.to_thread(is_valid_mermaid, src, strict=False):
+                    failures.append(f"question {q.id!r} option {label}: invalid mermaid syntax")
+            failures.extend(f"question {q.id!r}: {m}" for m in uniformity_failures(q.options))
+
+        if failures:
+            reason = "Fix these and resubmit the whole quiz:\n- " + "\n- ".join(failures)
+            return _deny_submit(reason, on_event, len(failures))
+        return {}
+
+    return HookMatcher(matcher=f"mcp__cognit__{_TOOL_SUBMIT}", hooks=[cast(HookCallback, _hook)])
 
 
 class ClaudeAgentLLM:

@@ -56,6 +56,14 @@ class Quiz(BaseModel):
     questions: list[Question]
 
 
+class QuizDraft(BaseModel):
+    """What the single generation agent submits: the final question shapes, no
+    pr_number (the orchestrator supplies it). Mermaid questions are fully rendered."""
+
+    version: Literal["1"] = "1"
+    questions: list[Question]
+
+
 # --- Internal-only types used between stage 1 (outline) and stage 2 (mermaid artisan). ---
 # Never serialized to PR comments. The final Quiz still uses `MermaidQuestion`.
 
