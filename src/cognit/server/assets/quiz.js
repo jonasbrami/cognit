@@ -628,7 +628,7 @@ let feedCursor = 0;
 
 const TOOL_LABELS = {
   submit_quiz: "Generating quiz",
-  submit_grades: "Grading answers",
+  submit_grade: "Grading answer",
 };
 
 function appendTermLine(feed, ev) {
@@ -643,6 +643,11 @@ function appendTermLine(feed, ev) {
     line = el("div", { class: "term__line term__tool" }, [
       el("span", { class: "term__prompt", text: "·" }),
       el("span", { class: "term__dim", text: ev.name }),
+    ]);
+  } else if (ev.kind === "thinking" && ev.text.trim() !== "") {
+    line = el("div", { class: "term__line term__think" }, [
+      el("span", { class: "term__prompt", text: "✳" }),
+      el("span", { class: "term__dim", text: ev.text }),
     ]);
   } else if (ev.kind === "text" && ev.text.trim() !== "") {
     line = el("div", { class: "term__line" }, [

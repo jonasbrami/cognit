@@ -40,6 +40,7 @@ from claude_agent_sdk import (
     HookMatcher,
     ProcessError,
     TextBlock,
+    ThinkingBlock,
     ToolUseBlock,
     create_sdk_mcp_server,
     query,
@@ -321,16 +322,22 @@ class ClaudeAgentLLM:
         asyncio.run(_drain())
 
     def _forward_activity(self, msg: Any) -> None:
-        """Forward an assistant message's text + tool calls to `self.on_event`.
+        """Forward an assistant message's reasoning, prose, and tool calls to `self.on_event`.
 
-        No-op unless a sink is attached. Thinking blocks, tool results, and
-        non-assistant messages (results/system) are intentionally ignored — the
-        feed shows what Claude says and which tools it runs, not its reasoning.
+        No-op unless a sink is attached. Tool results and non-assistant messages
+        (results/system) are ignored. Thinking blocks ARE forwarded (as `thinking`
+        events) so the live feed shows Claude's reasoning during the long silent
+        stretches between tool calls — otherwise the feed looks frozen while the
+        agent reads the diff and decides what to inspect.
         """
         if self.on_event is None or not isinstance(msg, AssistantMessage):
             return
         for block in msg.content:
-            if isinstance(block, TextBlock):
+            if isinstance(block, ThinkingBlock):
+                self.on_event(
+                    {"kind": "thinking", "text": block.thinking, "tool": self._current_tool}
+                )
+            elif isinstance(block, TextBlock):
                 self.on_event({"kind": "text", "text": block.text, "tool": self._current_tool})
             elif isinstance(block, ToolUseBlock):
                 self.on_event({"kind": "tool_use", "name": block.name, "tool": self._current_tool})
