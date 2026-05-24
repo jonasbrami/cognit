@@ -1,0 +1,62 @@
+{
+  "version": "1",
+  "pr_number": 20,
+  "questions": [
+    {
+      "type": "mcq",
+      "id": "q1",
+      "prompt": "Given `_is_retryable(RuntimeError(\"agent did not call submit_quiz\"))`, what does the function return?",
+      "options": [
+        "True — it is a RuntimeError, not a ValidationError, and its message contains no fatal marker",
+        "False — no retryable marker appears in the message, so the final `return any(...)` evaluates to False",
+        "True — only ValidationError is excluded; all other exception types are unconditionally retried"
+      ],
+      "answer": "False — no retryable marker appears in the message, so the final `return any(...)` evaluates to False",
+      "explanation": "`_is_retryable` first short-circuits on `ValidationError`, then on any fatal marker — neither applies here. But it only returns `True` if a *retryable* marker is positively matched. The message 'agent did not call submit_quiz' matches nothing in `_RETRYABLE_MARKERS`, so `any(...)` is `False` and the function returns `False`. The misconception is that the absence of a fatal marker is enough to trigger a retry; it isn't — a retryable marker must match."
+    },
+    {
+      "type": "mcq",
+      "id": "q2",
+      "prompt": "What is the maximum value `_backoff_delay(attempt=0, rng)` can return?",
+      "options": [
+        "1.0 s — `2**0 = 1`, making the cap 1 second before the `min`",
+        "2.0 s — `min(30.0, 2.0 × 2**0)` = `min(30.0, 2.0)` = 2.0",
+        "30.0 s — every call saturates at `_MAX_DELAY_S` regardless of attempt"
+      ],
+      "answer": "2.0 s — `min(30.0, 2.0 × 2**0)` = `min(30.0, 2.0)` = 2.0",
+      "explanation": "The formula is `min(_MAX_DELAY_S, _BASE_DELAY_S * (2**attempt))`. At attempt 0: `2.0 × 2**0 = 2.0 × 1 = 2.0`, and `min(30.0, 2.0) = 2.0`. The common slip is dropping the `_BASE_DELAY_S` multiplier (giving 1.0), or assuming the cap always saturates at 30 s (which only happens from attempt 4 onward: `2.0 × 16 = 32 > 30`)."
+    },
+    {
+      "type": "mcq",
+      "id": "q3",
+      "prompt": "When all 3 attempts each fail with `RuntimeError('429 rate limit')`, how many times is the `sleep` callable invoked?",
+      "options": [
+        "3 — once after each of the three failures",
+        "2 — on the final attempt the `raise` inside the except block fires before `sleep` is reached",
+        "0 — the last transient failure short-circuits all preceding sleeps"
+      ],
+      "answer": "2 — on the final attempt the `raise` inside the except block fires before `sleep` is reached",
+      "explanation": "On attempt 2 (0-based), `attempt + 1 >= _MAX_ATTEMPTS` is `3 >= 3` — True — so `raise` executes immediately in the except block, before the `sleep` call. Attempts 0 and 1 do sleep (they pass the condition check), giving exactly 2 sleeps for 3 total failures. The test `assert len(slept) == _MAX_ATTEMPTS - 1` directly verifies this."
+    },
+    {
+      "type": "mermaid",
+      "id": "q4",
+      "prompt": "Which diagram correctly models what `_draft_with_retry` does when `llm.draft_quiz` raises an exception on a given attempt?",
+      "options": {
+        "A": "flowchart LR\n  A[exception caught] --> B{final or non-retryable?}\n  B -- yes --> C[re-raise]\n  B -- no --> D[sleep backoff]\n  D --> E[notify sink]\n  E --> F[next attempt]",
+        "B": "flowchart LR\n  A[exception caught] --> B{final or non-retryable?}\n  B -- yes --> C[re-raise]\n  B -- no --> D[notify sink]\n  D --> E[sleep backoff]\n  E --> F[next attempt]",
+        "C": "flowchart LR\n  A[exception caught] --> B{final attempt?}\n  B -- yes --> C[re-raise]\n  B -- no --> D[notify sink]\n  D --> E[sleep backoff]\n  E --> F[next attempt]",
+        "D": "flowchart LR\n  A[exception caught] --> B{not retryable?}\n  B -- yes --> C[re-raise]\n  B -- no --> D[notify sink]\n  D --> E[sleep backoff]\n  E --> F[next attempt]"
+      },
+      "answer": "B",
+      "explanation": ""
+    },
+    {
+      "type": "tf",
+      "id": "q5",
+      "prompt": "When all 3 attempts fail with transient errors, the exception that ultimately propagates to the caller is the one raised by the **first** failed attempt.",
+      "answer": false,
+      "explanation": "On the final attempt (attempt=2), `raise` re-raises the *current* `exc` from that iteration — not the stored `last_exc` from earlier iterations. The test confirms this with `match=f'#{_MAX_ATTEMPTS - 1}'`, which matches '#2' (the third error). The PR doc says 're-raises the original exception unchanged' — 'original' means the raw SDK exception, not wrapped in a new one, not necessarily the chronologically first one."
+    }
+  ]
+}

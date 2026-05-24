@@ -9,7 +9,7 @@
 
 > Voluntary, opt-in PR-author comprehension quizzes. Surface the gap between what you think your code does and what it actually does — before you merge.
 
-![Demo: `cognit take` generates a quiz from a PR diff while Claude reads the code, then the author answers four questions — multiple choice, a mermaid-pick diagram, an open question, and true/false — and gets graded scores in the browser.](docs/img/cognit-demo.gif)
+![Demo: `cognit take` generates a quiz from a real PR diff while Claude reads the code, then the author answers five questions — three multiple-choice, a mermaid-pick flow diagram, and true/false — and gets graded scores in the browser.](docs/img/cognit-demo.gif)
 
 **cognit flips the usual AI coding loop.** Normally you write a prompt and Claude writes the code. cognit has Claude *read* the code and write prompts back — questions only you, the author, can answer about the diff you're about to merge. Same model, arrows reversed, and the loop closes on the one question that matters: *does this code do what you intended?* Each question you wrestle with — especially the ones you get wrong — is comprehension credit banked against [comprehension debt](#why-this-exists). Call it **comprehension-driven development (CDD)**.
 
