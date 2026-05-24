@@ -154,7 +154,9 @@ def _submit_validation_hook(
 
     Checks, in order: (1) QuizDraft Pydantic shape; (2) per mermaid question —
     exactly 4 options, `answer` in keys; (3) each diagram parses (is_valid_mermaid,
-    strict=False); (4) the 4 diagrams are visually uniform (uniformity_failures).
+    strict=False); (4) the 4 diagrams are visually uniform (uniformity_failures);
+    (5) the 4 diagrams are all distinct (distinctness_failure). Finally, a quiz with
+    no mermaid question at all is denied once (a soft nudge to include a diagram).
     Emits `checking…` / `⟳ fixing…` to `on_event` so the activity feed shows it.
     """
     # Tracks the single "no mermaid" denial per draft_quiz call: deny once to make

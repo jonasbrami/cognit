@@ -276,8 +276,9 @@ def distinctness_failure(options: dict[str, str]) -> list[str]:
     """A failure if the option diagrams are not all distinct, else [].
 
     `uniformity_failures` keeps the four diagrams superficially *similar*; this
-    guards the opposite degenerate case — four *identical* sources (modulo
-    whitespace) pass uniformity trivially but give the reader no real distractors,
+    guards the opposite degenerate case — any duplicate among the option sources
+    (two or more identical modulo whitespace) passes uniformity trivially but gives
+    the reader no real distractors,
     so the question is unanswerable-as-a-quiz. Compares whitespace-normalized text.
     """
     srcs = list(options.values())

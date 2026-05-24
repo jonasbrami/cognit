@@ -56,3 +56,15 @@ def test_distinctness_passes_when_all_distinct():
         "D": "flowchart LR\n  C-->B-->A",
     }
     assert distinctness_failure(opts) == []
+
+
+def test_distinctness_flags_partial_duplicate():
+    # The realistic failure mode: two options identical, two distinct.
+    opts = {
+        "A": "flowchart LR\n  A-->B-->C",
+        "B": "flowchart LR\n  A-->B-->C",  # identical to A
+        "C": "flowchart LR\n  B-->A-->C",
+        "D": "flowchart LR\n  C-->B-->A",
+    }
+    fails = distinctness_failure(opts)
+    assert fails and "distinct" in fails[0]
