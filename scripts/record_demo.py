@@ -144,7 +144,14 @@ def _stream_generation(broker, quiz: Quiz) -> None:
             0.9,
         ),
         ({"kind": "tool_use", "name": "grep", "detail": "skip_rate_limit"}, 0.5),
-        ({"kind": "text", "text": "Writing 4 questions across the changed paths.", "tool": "submit_quiz"}, 0.8),
+        (
+            {
+                "kind": "text",
+                "text": "Writing 4 questions across the changed paths.",
+                "tool": "submit_quiz",
+            },
+            0.8,
+        ),
     ]
     for event, delay in feed:
         broker.emit(event)
@@ -257,8 +264,12 @@ def _webm_to_gif(webm: Path, out: Path) -> None:
         # Pass 1: build an optimized palette from the whole clip.
         subprocess.run(
             [
-                "ffmpeg", "-y", "-i", str(webm),
-                "-vf", f"{vf_common},palettegen=stats_mode=diff",
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(webm),
+                "-vf",
+                f"{vf_common},palettegen=stats_mode=diff",
                 str(palette),
             ],
             check=True,
@@ -267,9 +278,16 @@ def _webm_to_gif(webm: Path, out: Path) -> None:
         # Pass 2: apply the palette with dithering; loop forever.
         subprocess.run(
             [
-                "ffmpeg", "-y", "-i", str(webm), "-i", str(palette),
-                "-lavfi", f"{vf_common} [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=3",
-                "-loop", "0",
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(webm),
+                "-i",
+                str(palette),
+                "-lavfi",
+                f"{vf_common} [x]; [x][1:v] paletteuse=dither=bayer:bayer_scale=3",
+                "-loop",
+                "0",
                 str(out),
             ],
             check=True,
@@ -292,9 +310,7 @@ def main() -> None:
         llm=FakeLLM(canned_open_score=85, canned_open_feedback="Captures the key idea."),
         post_comment=lambda body: f"{PR_URL}#issuecomment-9999",
     )
-    threading.Thread(
-        target=_stream_generation, args=(app.state.broker, quiz), daemon=True
-    ).start()
+    threading.Thread(target=_stream_generation, args=(app.state.broker, quiz), daemon=True).start()
 
     port = _free_port()
     server = _serve(app, port)
