@@ -627,9 +627,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let feedCursor = 0;
 
 const TOOL_LABELS = {
-  submit_quiz_outline: "Generating outline",
-  submit_mermaid_set: "Drawing diagram",
-  submit_grade: "Grading answer",
+  submit_quiz: "Generating quiz",
+  submit_grades: "Grading answers",
 };
 
 function appendTermLine(feed, ev) {

@@ -42,13 +42,13 @@ def test_drain_agent_forwards_text_and_tool_use_events(monkeypatch: pytest.Monke
     captured: list[dict[str, Any]] = []
     llm = ClaudeAgentLLM()
     llm.on_event = captured.append
-    llm._current_tool = "submit_quiz_outline"
+    llm._current_tool = "submit_quiz"
 
     llm._drain_agent(prompt="u", options=None, handler=None)
 
     assert captured == [
-        {"kind": "text", "text": "picking questions…", "tool": "submit_quiz_outline"},
-        {"kind": "tool_use", "name": "Read", "tool": "submit_quiz_outline"},
+        {"kind": "text", "text": "picking questions…", "tool": "submit_quiz"},
+        {"kind": "tool_use", "name": "Read", "tool": "submit_quiz"},
     ]
 
 

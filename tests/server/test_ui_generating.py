@@ -66,8 +66,8 @@ def test_generating_feed_then_swaps_to_quiz(page) -> None:
     release = threading.Event()
 
     def on_generate(broker) -> None:  # type: ignore[no-untyped-def]
-        broker.emit({"kind": "step", "tool": "submit_quiz_outline"})
-        broker.emit({"kind": "text", "text": "reading the diff…", "tool": "submit_quiz_outline"})
+        broker.emit({"kind": "step", "tool": "submit_quiz"})
+        broker.emit({"kind": "text", "text": "reading the diff…", "tool": "submit_quiz"})
         release.wait(timeout=5)
         broker.set_ready(quiz)
 
@@ -88,7 +88,7 @@ def test_generating_feed_then_swaps_to_quiz(page) -> None:
         # The generating view appears with the streamed activity feed.
         page.wait_for_selector("#term-feed .term__line", timeout=5000)
         feed = page.locator("#term-feed").text_content()
-        assert "Generating outline" in feed  # step → friendly label
+        assert "Generating quiz" in feed  # step → friendly label
         assert "reading the diff" in feed  # streamed assistant text
         # The quiz is not rendered yet.
         assert page.locator("#questions-root .file").count() == 0
