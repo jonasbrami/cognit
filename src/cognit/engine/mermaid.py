@@ -241,3 +241,54 @@ def is_valid_mermaid(source: str, *, strict: bool = False) -> bool:
         )
     logger.debug("validator: python-only (no mmdc, no docker)")
     return True
+
+
+# --- Visual-uniformity heuristics (anti-leak) -------------------------------
+# Coarse, deliberately tunable proxies for system_mermaid.txt rule 1: the four
+# option diagrams must not be distinguishable by superficial features (a
+# different type/direction, or one noticeably bigger). These catch the common
+# leaks, not subtle ones — the submit hook denies + the agent self-corrects.
+
+_EDGE_OP = re.compile(r"-->|---|-\.->|==>|-->>|->>|->")
+_UNIFORMITY_SIZE_TOLERANCE = 2  # max-min non-empty line count
+_UNIFORMITY_EDGE_TOLERANCE = 2  # max-min edge-operator count
+
+
+def _diagram_header(source: str) -> str:
+    """First non-empty line, whitespace-normalized — captures both diagram type
+    and direction (e.g. 'flowchart LR', 'sequenceDiagram')."""
+    for line in source.splitlines():
+        normalized = " ".join(line.split())
+        if normalized:
+            return normalized
+    return ""
+
+
+def _line_count(source: str) -> int:
+    return sum(1 for line in source.splitlines() if line.strip())
+
+
+def _edge_count(source: str) -> int:
+    return len(_EDGE_OP.findall(source))
+
+
+def uniformity_failures(options: dict[str, str]) -> list[str]:
+    """Reasons the option diagrams are NOT visually uniform, or [] if they are.
+
+    Heuristic: all share one header line (type + direction); non-empty line
+    counts within a tolerance band; edge-operator counts within a band.
+    """
+    srcs = list(options.values())
+    if len(srcs) < 2:
+        return []
+    fails: list[str] = []
+    headers = sorted({_diagram_header(s) for s in srcs})
+    if len(headers) > 1:
+        fails.append(f"all diagrams must share one header/direction; got {headers}")
+    lines = [_line_count(s) for s in srcs]
+    if max(lines) - min(lines) > _UNIFORMITY_SIZE_TOLERANCE:
+        fails.append(f"diagram sizes differ too much (line counts {lines}); keep them comparable")
+    edges = [_edge_count(s) for s in srcs]
+    if max(edges) - min(edges) > _UNIFORMITY_EDGE_TOLERANCE:
+        fails.append(f"edge counts differ too much {edges}; keep them comparable")
+    return fails
