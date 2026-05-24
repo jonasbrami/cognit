@@ -131,9 +131,7 @@ def test_draft_quiz_restricts_to_readonly_tools(
 ) -> None:
     """The generation agent gets read-only built-ins via `tools=` (the availability knob),
     a cwd at the repo root, and a higher turn budget. It must NOT be able to write/shell."""
-    canned = QuizDraft(
-        questions=[MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A")]
-    )
+    canned = QuizDraft(questions=[MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A")])
     seen: dict[str, Any] = {}
 
     def fake_drain(self: ClaudeAgentLLM, *, prompt: str, options: Any, handler: Any) -> None:
@@ -207,9 +205,7 @@ def test_draft_quiz_registers_pr_diff_and_submit_tools(
         recorded["tools"] = kwargs["tools"]
         return real_create(*args, **kwargs)
 
-    canned = QuizDraft(
-        questions=[MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A")]
-    )
+    canned = QuizDraft(questions=[MCQQuestion(id="q1", prompt="?", options=["A", "B"], answer="A")])
 
     def fake_drain(self: ClaudeAgentLLM, *, prompt: str, options: Any, handler: Any) -> None:
         asyncio.run(handler(canned.model_dump()))

@@ -63,7 +63,11 @@ def test_shape_invalid_denied() -> None:
 def test_non_mermaid_quiz_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(llm_mod, "is_valid_mermaid", lambda src, strict=False: True)
     out = _run(
-        {"questions": [{"type": "mcq", "id": "q1", "prompt": "?", "options": ["x", "y"], "answer": "x"}]}
+        {
+            "questions": [
+                {"type": "mcq", "id": "q1", "prompt": "?", "options": ["x", "y"], "answer": "x"}
+            ]
+        }
     )
     assert out == {}
 
@@ -71,7 +75,10 @@ def test_non_mermaid_quiz_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_emits_validation_events(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(llm_mod, "is_valid_mermaid", lambda src, strict=False: False)
     events: list[dict[str, Any]] = []
-    _run({"questions": [_mermaid_q({"A": "x", "B": "x", "C": "x", "D": "x"})]}, on_event=events.append)
+    _run(
+        {"questions": [_mermaid_q({"A": "x", "B": "x", "C": "x", "D": "x"})]},
+        on_event=events.append,
+    )
     texts = [e.get("text", "") for e in events]
     assert any("checking" in t for t in texts)
     assert any("fixing" in t for t in texts)
