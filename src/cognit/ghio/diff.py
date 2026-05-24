@@ -68,6 +68,47 @@ def _filter_diff(diff: str) -> str:
     return "".join(sections)
 
 
+def split_diff(diff: str) -> dict[str, str]:
+    """Split a (filtered) unified diff into ``{target_path: section_text}``.
+
+    Each `diff --git a/… b/…` section is keyed by its target path. Any preamble
+    before the first section is dropped. Lets the agent pull one file's hunks at a
+    time instead of receiving the whole diff up front.
+    """
+    sections: dict[str, str] = {}
+    path: str | None = None
+    current: list[str] = []
+    for line in diff.splitlines(keepends=True):
+        if line.startswith("diff --git "):
+            if path is not None:
+                sections[path] = "".join(current)
+            path = _diff_git_target_path(line)
+            current = [line]
+        elif path is not None:
+            current.append(line)
+    if path is not None:
+        sections[path] = "".join(current)
+    return sections
+
+
+def summarize_diff(diff: str) -> str:
+    """A `--stat`-style overview: one line per changed file with +/- counts.
+
+    Cheap and bounded — the agent triages from this, then pulls the files worth
+    quizzing via the per-file diff tool, instead of loading the whole diff at once.
+    """
+    out: list[str] = []
+    for path, section in split_diff(diff).items():
+        adds = sum(
+            1 for ln in section.splitlines() if ln.startswith("+") and not ln.startswith("+++")
+        )
+        dels = sum(
+            1 for ln in section.splitlines() if ln.startswith("-") and not ln.startswith("---")
+        )
+        out.append(f"{path} | +{adds} -{dels}")
+    return "\n".join(out) if out else "(no changed files after filtering)"
+
+
 def fetch_pr_diff(pr_url_or_number: str) -> str:
     """Return the PR's unified diff with vendored/minified/lock/binary sections stripped.
 

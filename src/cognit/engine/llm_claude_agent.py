@@ -52,11 +52,12 @@ from pydantic import ValidationError
 from cognit.engine.llm import GenerateRequest
 from cognit.engine.mermaid import is_valid_mermaid, uniformity_failures
 from cognit.engine.models import MermaidQuestion, QuizDraft
-from cognit.ghio.diff import fetch_pr_diff
+from cognit.ghio.diff import fetch_pr_diff, split_diff, summarize_diff
 
 _TOOL_SUBMIT = "submit_quiz"
 _TOOL_GRADE = "submit_grade"
-_TOOL_PR_DIFF = "pr_diff"
+_TOOL_OVERVIEW = "pr_overview"
+_TOOL_FILE_DIFF = "file_diff"
 
 # Read-only built-in tools the outline agent may use to inspect the working tree.
 # These are passed via `tools=` (availability), NOT just `allowed_tools=`.
@@ -369,25 +370,64 @@ class ClaudeAgentLLM:
         if self.on_event is not None:
             self.on_event({"kind": "step", "tool": _TOOL_SUBMIT})
 
-        async def pr_diff_handler(args: dict[str, Any]) -> dict[str, Any]:
-            return {"content": [{"type": "text", "text": fetch_pr_diff(req.pr_url)}]}
+        # The full diff is fetched once and held here, served piecewise: the agent gets
+        # a stat overview, then pulls individual files' hunks on demand — so the whole
+        # diff never lands in the model's context at once (which we profiled as the
+        # dominant cost + the trigger for the SDK's truncate-to-file spill).
+        diff_state: dict[str, Any] = {}
+
+        def _ensure_diff() -> None:
+            if "sections" not in diff_state:
+                full = fetch_pr_diff(req.pr_url)
+                diff_state["sections"] = split_diff(full)
+                diff_state["overview"] = summarize_diff(full)
+
+        async def overview_handler(args: dict[str, Any]) -> dict[str, Any]:
+            _ensure_diff()
+            return {"content": [{"type": "text", "text": diff_state["overview"]}]}
+
+        async def file_diff_handler(args: dict[str, Any]) -> dict[str, Any]:
+            _ensure_diff()
+            sections: dict[str, str] = diff_state["sections"]
+            path = str(args.get("path", "")).strip()
+            section = sections.get(path)
+            if section is None:  # tolerate basename / repo-relative variants
+                hits = [p for p in sections if p.endswith(path) or p.rsplit("/", 1)[-1] == path]
+                section = sections[hits[0]] if len(hits) == 1 else None
+            if section is None:
+                listing = ", ".join(sorted(sections)) or "(none)"
+                section = f"No changed file matches {path!r}. Changed files: {listing}"
+            return {"content": [{"type": "text", "text": section}]}
 
         async def submit_handler(args: dict[str, Any]) -> dict[str, Any]:
             captured.append(args)
             return {"content": [{"type": "text", "text": "ok"}]}
 
-        pr_diff_tool = tool(
-            _TOOL_PR_DIFF,
-            "Fetch the PR's unified diff. Vendored/minified/lock/binary files are "
-            "already stripped. Call this first to see what changed.",
+        overview_tool = tool(
+            _TOOL_OVERVIEW,
+            "List the PR's changed files with +/- line counts (vendored/minified/lock/"
+            "binary files already excluded). Call first to decide what's worth quizzing.",
             {"type": "object", "properties": {}},
-        )(pr_diff_handler)
+        )(overview_handler)
+        file_diff_tool = tool(
+            _TOOL_FILE_DIFF,
+            "Fetch the diff hunks for ONE changed file. Pass a `path` from pr_overview. "
+            "Only pull files you'll actually quiz on.",
+            {
+                "type": "object",
+                "properties": {"path": {"type": "string"}},
+                "required": ["path"],
+                "additionalProperties": False,
+            },
+        )(file_diff_handler)
         submit_tool = tool(
             _TOOL_SUBMIT,
             "Submit the complete quiz, mermaid diagrams fully rendered.",
             QuizDraft.model_json_schema(),
         )(submit_handler)
-        server = create_sdk_mcp_server(name="cognit", tools=[pr_diff_tool, submit_tool])
+        server = create_sdk_mcp_server(
+            name="cognit", tools=[overview_tool, file_diff_tool, submit_tool]
+        )
 
         repo_root = _repo_root()
         self._run_agent(
@@ -396,7 +436,8 @@ class ClaudeAgentLLM:
             server=server,
             allowed_tools=[
                 *_OUTLINE_BUILTIN_TOOLS,
-                f"mcp__cognit__{_TOOL_PR_DIFF}",
+                f"mcp__cognit__{_TOOL_OVERVIEW}",
+                f"mcp__cognit__{_TOOL_FILE_DIFF}",
                 f"mcp__cognit__{_TOOL_SUBMIT}",
             ],
             tools=_OUTLINE_BUILTIN_TOOLS,

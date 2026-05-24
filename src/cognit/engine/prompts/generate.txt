@@ -8,7 +8,7 @@ Generate a comprehension quiz for the PR author. You are inspecting **PR #{pr_nu
 
 Inspect the change yourself, then submit the quiz:
 
-1. Call the `pr_diff` tool to fetch the PR's unified diff. (Vendored/minified/lock/binary files are already stripped from it.)
-2. Use `Read`, `Grep`, and `Glob` on the working tree (already checked out on this branch) to pull only the context you need — the definition a changed function calls, the surrounding code, a referenced type. Read targeted line ranges, not whole files. **Never read large, minified, generated, or vendored files in full** — they waste your context and aren't worth quizzing on.
+1. Call `pr_overview` to list the changed files with their +/- line counts (vendored/minified/lock/binary files are already excluded).
+2. For each file worth quizzing, call `file_diff(path)` to pull just that file's changes — don't fetch files you won't use. For surrounding *unchanged* context (a helper a changed function calls, a referenced type), use `Read`/`Grep`/`Glob` on the working tree (already checked out on this branch); read targeted line ranges, **never whole large/generated/vendored files**.
 3. Decide the question count and type-mix yourself.
 4. Submit the complete quiz — mermaid questions fully rendered — via the `submit_quiz` tool. A validator checks every diagram; if it rejects any, fix those and submit again.

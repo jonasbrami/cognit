@@ -152,7 +152,8 @@ def test_draft_quiz_restricts_to_readonly_tools(
         "Read",
         "Grep",
         "Glob",
-        "mcp__cognit__pr_diff",
+        "mcp__cognit__pr_overview",
+        "mcp__cognit__file_diff",
         "mcp__cognit__submit_quiz",
     ]
     assert opts.cwd == "/repo/root"
@@ -193,11 +194,20 @@ def test_read_confinement_hook_denies_paths_outside_repo() -> None:
     assert not denied(run("Glob", {"pattern": "**/*.py"}))
 
 
-def test_draft_quiz_registers_pr_diff_and_submit_tools(
+_FAKE_DIFF = (
+    "diff --git a/src/a.py b/src/a.py\n"
+    "--- a/src/a.py\n+++ b/src/a.py\n@@ -1 +1,2 @@\n-old\n+new\n+extra\n"
+    "diff --git a/src/b.py b/src/b.py\n"
+    "--- a/src/b.py\n+++ b/src/b.py\n@@ -1 +1 @@\n-x\n+y\n"
+)
+
+
+def test_draft_quiz_registers_overview_file_diff_and_submit_tools(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Two MCP tools must be registered: `pr_diff` (fetches the diff) and the terminal
-    `submit_quiz`. The `pr_diff` handler delegates to `fetch_pr_diff`."""
+    """Three MCP tools are registered: `pr_overview` (stat), `file_diff` (one file's
+    hunks on demand), and the terminal `submit_quiz`. The diff is fetched once and
+    served piecewise — never as one blob."""
     recorded: dict[str, Any] = {}
     real_create = llm_mod.create_sdk_mcp_server
 
@@ -210,22 +220,41 @@ def test_draft_quiz_registers_pr_diff_and_submit_tools(
     def fake_drain(self: ClaudeAgentLLM, *, prompt: str, options: Any, handler: Any) -> None:
         asyncio.run(handler(canned.model_dump()))
 
+    fetched: list[str] = []
+
+    def fake_fetch(url: str) -> str:
+        fetched.append(url)
+        return _FAKE_DIFF
+
     monkeypatch.setattr(llm_mod, "create_sdk_mcp_server", spy_create)
     monkeypatch.setattr(ClaudeAgentLLM, "_drain_agent", fake_drain)
     monkeypatch.setattr(llm_mod, "_repo_root", lambda: "/repo")
-    monkeypatch.setattr(llm_mod, "fetch_pr_diff", lambda url: f"DIFF-FOR::{url}")
+    monkeypatch.setattr(llm_mod, "fetch_pr_diff", fake_fetch)
 
     llm = ClaudeAgentLLM()
     out = llm.draft_quiz(_req())
     assert out == canned
 
-    tools = recorded["tools"]
-    assert [t.name for t in tools] == ["pr_diff", "submit_quiz"]
+    tools = {t.name: t for t in recorded["tools"]}
+    assert list(tools) == ["pr_overview", "file_diff", "submit_quiz"]
 
-    # The pr_diff tool, when invoked by the agent, returns the (filtered) diff text.
-    pr_diff_tool = next(t for t in tools if t.name == "pr_diff")
-    result = asyncio.run(pr_diff_tool.handler({}))
-    assert result["content"][0]["text"] == "DIFF-FOR::https://github.com/o/r/pull/7"
+    # pr_overview returns the stat (files + counts), not the raw diff.
+    overview = asyncio.run(tools["pr_overview"].handler({}))["content"][0]["text"]
+    assert "src/a.py | +2 -1" in overview
+    assert "src/b.py | +1 -1" in overview
+    assert "@@" not in overview  # it's a summary, not hunks
+
+    # file_diff returns one file's hunks; basename match is tolerated.
+    sect = asyncio.run(tools["file_diff"].handler({"path": "a.py"}))["content"][0]["text"]
+    assert "diff --git a/src/a.py" in sect and "+extra" in sect
+    assert "src/b.py" not in sect
+
+    # An unknown path lists what's available rather than erroring.
+    miss = asyncio.run(tools["file_diff"].handler({"path": "nope.py"}))["content"][0]["text"]
+    assert "No changed file matches" in miss
+
+    # The diff is fetched once and reused across overview + file_diff calls.
+    assert len(fetched) == 1
 
 
 def test_draft_quiz_raises_when_submit_not_called(
