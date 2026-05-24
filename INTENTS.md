@@ -73,7 +73,7 @@ The PR thread carries **at most one comment** per take session, and only if the 
      - Cache path: `$TMPDIR/cognit/<sha1(pr_url)[:16]>.json`. If present, deserialize and skip to step 3.
      - Otherwise: fetch PR title, body via `gh pr view`; diff via `gh pr diff`; touched-file contents via `git show HEAD:<path>`. Skip if diff < `--min-diff-lines` (default 50), > `--max-diff-lines` (default 2000), or if PR body contains `quiz: skip`.
      - Call the LLM with a prompt that asks it to **decide both the count and the type-mix** based on diff size and complexity. A typo fix gets 2–3 probes; a 500-line refactor with new abstractions might warrant 8 or more. Question types: `mcq` (facts/invariants), `mermaid` (control or data flow — generated as 1 correct + 3 plausible-but-wrong variants in uniform style), `open` (LLM-graded against a rubric), `tf` (subtle behavioral claims).
-     - Validate mermaid diagrams with `@mermaid-js/mermaid-cli` parse pass (skip silently if not installed); retry per-question on failure (max 2 retries); drop mermaid Q as last resort.
+     - Validate mermaid diagrams with `@mermaid-js/mermaid-cli` parse pass (skip silently if not installed) via a `PreToolUse` hook on the submit tool; on failure the hook denies with a precise reason and the agent self-corrects in-turn (no drop, no replacement). If a diagram can't be made valid within the turn budget, generation fails.
      - Post-process mermaid options to neutral A/B/C/D labels (prevents accidental answer leak from semantic labels like `correct`/`wrong_1`).
      - Write the Quiz JSON to the cache. **The quiz is NOT posted to the PR.**
   3. Spin up a local HTTP server (FastAPI + uvicorn, 127.0.0.1 only, random unused port), open the URL in the default browser. The Quiz is held in the server's closure.
@@ -182,7 +182,7 @@ PR-level escape hatches: `quiz: skip` in PR description suppresses generation en
 
 | Failure | Behavior |
 |---|---|
-| Mermaid syntax invalid in any candidate | Retry per-question generation up to 2 times. If still invalid, drop the mermaid question. |
+| Mermaid syntax invalid in any candidate | Submit-validation hook denies with the offending question/option; the agent fixes it and resubmits in the same turn. If it can't be made valid within the turn budget, generation fails. |
 | Diff smaller than `--min-diff-lines` | `take` prints `"diff is N lines (< min) — skipping."` and exits zero. No PR comment. |
 | Diff larger than `--max-diff-lines` | `take` prints `"diff is N lines (> max) — skipping."` and exits zero. No PR comment. |
 | `quiz: skip` in PR body | `take` prints `"quiz: skip in PR body — skipping."` and exits zero. No PR comment. |
@@ -193,7 +193,7 @@ PR-level escape hatches: `quiz: skip` in PR description suppresses generation en
 
 - **Unit tests** for the question generator: fixture diffs → assert valid JSON schema, valid mermaid, mermaid label neutralization.
 - **Unit tests** for grading: fixture quiz JSON + fixture answers → assert correct deterministic + LLM-graded scoring.
-- **Unit tests** for the LLM adapter using `respx` to mock `api.anthropic.com`. Covers both stages of generation (`generate_quiz_outline` and `generate_mermaid_set`) and `grade_open`, plus assertions on system-prompt + `cache_control` shape.
+- **Unit tests** for the LLM adapter. Covers single-stage generation (`draft_quiz`) and `grade_open`, plus the submit-validation hook (shape + mermaid syntax + uniformity) and assertions on system-prompt shape.
 - **Unit tests** for the FastAPI server using `TestClient` (covers `/`, `/static/*`, `/submit`, `/publish`).
 - **Playwright end-to-end** (manual, ad hoc): drive the browser through fill → submit → publish against the live PR; screenshot every state. The headless-Chrome `--screenshot` flag is a faster alternative for visual smoke.
 - **CI** (`.github/workflows/ci.yml`): on every push, run `ruff check`, `ruff format --check`, `mypy --strict`, `pytest`, and a CLI install smoke (`cognit --help` etc.).
