@@ -15,7 +15,7 @@ The PR changes these files (vendored/minified/lock/binary already excluded), wit
 Inspect the change, then submit the quiz:
 
 1. For each file worth quizzing, call `file_diff(path)` (a path from the list above) to pull just that file's changes — don't fetch files you won't use. For surrounding *unchanged* context (a helper a changed function calls, a referenced type), use `Read`/`Grep`/`Glob` on the working tree (checked out on this branch); targeted line ranges only, **never whole large/generated/vendored files**.
-2. Decide the question count and type-mix yourself. Work efficiently — pull only what you'll quiz on and reason concisely; don't narrate the whole diff back.
+2. **Plan before drafting.** First decide the quiz *shape*: list the slots you'll fill as `(type, the one aspect it probes, the misconception/surprise it surfaces, file:line)` — covering distinct aspects, calibrated to the change's complexity. Decide up front whether a `mermaid` slot is warranted (it usually is when the change touches control flow, call order, or data handoff). Check each slot against the lookup test and the usefulness checklist in your instructions. Only then draft the questions. Work efficiently — pull only what you'll quiz on and reason concisely; don't narrate the whole diff back.
 3. Submit the complete quiz — mermaid questions fully rendered — via the `submit_quiz` tool. A validator checks every diagram; if it rejects any, fix those and submit again.
 
 Once `submit_quiz` succeeds you are done — do **not** write a summary or any closing message afterward.
