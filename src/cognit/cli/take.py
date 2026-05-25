@@ -10,6 +10,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import socket
 import subprocess
 import tempfile
@@ -30,6 +31,7 @@ from cognit.engine.llm import LLMClient
 from cognit.engine.llm_claude_agent import ClaudeAgentLLM
 from cognit.engine.models import Quiz
 from cognit.ghio.pr import fetch_pr_info, find_latest_marker_comment, post_comment
+from cognit.mcp.launch import build_launch_spec
 from cognit.server.app import build_app
 from cognit.server.streaming import Broker
 
@@ -301,6 +303,12 @@ def _configure_logging() -> None:
     )
 
 
+def _load_host_prompt() -> str:
+    from importlib import resources
+
+    return resources.files("cognit.engine.prompts").joinpath("system_generate.txt").read_text()
+
+
 def run(
     pr: str | None,
     show_results: bool,
@@ -311,10 +319,60 @@ def run(
     if pr_url is None:
         typer.echo("error: no PR detected from current branch; pass --pr <url>")
         raise typer.Exit(code=1)
-    llm = _make_llm(model)
-    _run_take_flow(
-        pr_url,
-        show_results_only=show_results,
-        llm=llm,
+
+    # --show-results: print the latest results comment and exit (no launch).
+    if show_results:
+        results_md = find_latest_marker_comment(pr_url, _MARKER_RESULTS)
+        if results_md is None:
+            typer.echo("no results comment found on this PR.")
+            raise typer.Exit(code=1)
+        typer.echo(parse_results(results_md).model_dump_json(indent=2))
+        return
+
+    if shutil.which("claude") is None:
+        typer.echo("error: `claude` not found. Install Claude Code and run `claude login`.")
+        raise typer.Exit(code=1)
+
+    try:
+        info = fetch_pr_info(pr_url)
+    except subprocess.CalledProcessError:
+        typer.echo(f"error: could not fetch PR info for {pr_url} (is `gh` installed and authenticated?)")
+        raise typer.Exit(code=1)
+    if "quiz: skip" in info.body.lower():
+        typer.echo("quiz: skip in PR body — skipping.")
+        return
+
+    try:
+        repo_root = Path(
+            subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.strip()
+        )
+    except subprocess.CalledProcessError:
+        typer.echo("error: not inside a git repository.")
+        raise typer.Exit(code=1)
+    port = _free_port()
+    snapshot = _cache_path_for(pr_url)
+    tmp = Path(tempfile.mkdtemp(prefix="cognit-"))
+    mcp_cfg, settings = tmp / "mcp.json", tmp / "settings.json"
+    spec = build_launch_spec(
+        pr_url=pr_url,
+        pr_number=info.number,
+        branch=info.branch,
+        port=port,
+        snapshot_path=snapshot,
+        repo_root=repo_root,
+        mcp_config_path=mcp_cfg,
+        settings_path=settings,
+        system_prompt=_load_host_prompt(),
         model=model,
     )
+    mcp_cfg.write_text(spec.mcp_config_json)
+    settings.write_text(spec.settings_json)
+    typer.echo(
+        f"cognit: launching quiz session for PR #{info.number} (browser opens shortly)…"
+    )
+    os.execvpe("claude", spec.argv, {**os.environ, **spec.env})
