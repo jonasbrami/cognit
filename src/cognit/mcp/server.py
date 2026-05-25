@@ -12,7 +12,9 @@ import asyncio
 import logging
 import os
 import socket
+import sys
 import threading
+import webbrowser
 from pathlib import Path
 from typing import Any
 
@@ -160,6 +162,17 @@ def _build_mcp(state: QuizState, llm: LLMClient, pr_url: str) -> FastMCP:
 
 def _start_web(state: QuizState, *, pr_url: str, port: int) -> None:
     app = build_web_app(state, post_comment=lambda body: gh_post_comment(pr_url, body))
+    url = f"http://127.0.0.1:{port}"
+
+    def _open() -> None:
+        import time
+        time.sleep(1.0)  # give uvicorn a moment to bind
+        try:
+            webbrowser.open(url)
+        except Exception:  # headless / no browser — non-fatal
+            logger.debug("could not open browser at %s", url)
+
+    threading.Thread(target=_open, daemon=True).start()
     cfg = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", lifespan="off")
     try:
         uvicorn.Server(cfg).run()
@@ -183,6 +196,7 @@ def main() -> None:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         s.bind(("127.0.0.1", port))
 
+    print(f"cognit quiz: http://127.0.0.1:{port}", file=sys.stderr)
     threading.Thread(
         target=_start_web, args=(state,), kwargs={"pr_url": pr_url, "port": port}, daemon=True
     ).start()
