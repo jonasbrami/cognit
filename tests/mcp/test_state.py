@@ -80,3 +80,16 @@ def test_publishable_returns_none_until_graded(tmp_path: Path) -> None:
                           per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")]))
     snap = s.publishable()
     assert snap is not None and snap[0].questions[0].id == "q1" and snap[2].total_score == 100
+
+
+def test_snapshot_for_grading_atomic(tmp_path: Path) -> None:
+    s = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
+    assert s.snapshot_for_grading() is None  # no quiz
+    s.set_quiz(_quiz())
+    s.record_answer("q1", "A")
+    snap = s.snapshot_for_grading()
+    assert snap is not None
+    quiz, answers = snap
+    assert quiz.questions[0].id == "q1" and answers == {"q1": "A"}
+    answers["q1"] = "MUTATED"  # caller's copy must not affect state
+    assert s.answers == {"q1": "A"}

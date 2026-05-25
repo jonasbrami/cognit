@@ -82,6 +82,13 @@ class QuizState:
                 return None
             return self.quiz, dict(self.answers), self.results
 
+    def snapshot_for_grading(self) -> "tuple[Quiz, dict[str, str]] | None":
+        """Atomically capture (quiz, answers-copy) under the lock for grading."""
+        with self._lock:
+            if self.quiz is None:
+                return None
+            return self.quiz, dict(self.answers)
+
     def snapshot(self) -> dict[str, object]:
         with self._lock:
             return {

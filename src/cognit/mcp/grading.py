@@ -11,12 +11,14 @@ from cognit.mcp.state import QuizState
 
 
 def grade_state(state: QuizState, *, llm: LLMClient) -> Results:
-    if state.quiz is None:
+    snap = state.snapshot_for_grading()
+    if snap is None:
         raise RuntimeError("no quiz to grade")
+    quiz, answers_map = snap
     answers = Answers(
         pr_number=state.pr_number,
-        entries=[AnswerEntry(question_id=qid, value=val) for qid, val in state.answers.items()],
+        entries=[AnswerEntry(question_id=qid, value=val) for qid, val in answers_map.items()],
     )
-    results = grade(state.quiz, answers, llm=llm)
+    results = grade(quiz, answers, llm=llm)
     state.set_results(results)
     return results
