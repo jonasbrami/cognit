@@ -1,0 +1,6 @@
+body { font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; max-width: 720px; margin: 40px auto; padding: 0 16px; color: #1f2328; }
+.q { border: 1px solid #d0d7de; border-radius: 8px; padding: 14px 16px; margin: 12px 0; }
+.q h3 { margin: 0 0 8px; font-size: 13px; color: #656d76; }
+.opt { display: block; margin: 4px 0; cursor: pointer; }
+.opt.sel { font-weight: 700; }
+.result { font-weight: 700; }

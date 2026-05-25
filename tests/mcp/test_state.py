@@ -70,3 +70,13 @@ def test_replace_question_out_of_range_raises(tmp_path: Path) -> None:
     s.set_quiz(_quiz())
     with pytest.raises(IndexError):
         s.replace_question(5, MCQQuestion(id="x", prompt="p", options=["A", "B"], answer="A"))
+
+
+def test_publishable_returns_none_until_graded(tmp_path: Path) -> None:
+    s = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
+    s.set_quiz(_quiz())
+    assert s.publishable() is None
+    s.set_results(Results(pr_number=7, total_score=100,
+                          per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")]))
+    snap = s.publishable()
+    assert snap is not None and snap[0].questions[0].id == "q1" and snap[2].total_score == 100

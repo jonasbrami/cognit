@@ -73,6 +73,15 @@ class QuizState:
             self.results = results
             self._persist()
 
+    def publishable(self) -> "tuple[Quiz, dict[str, str], Results] | None":
+        """Atomically capture (quiz, answers, results) under the lock, or None if not
+        yet gradeable. Avoids a TOCTOU where a concurrent set_quiz could null results
+        between a caller's None-check and its read."""
+        with self._lock:
+            if self.quiz is None or self.results is None:
+                return None
+            return self.quiz, dict(self.answers), self.results
+
     def snapshot(self) -> dict[str, object]:
         with self._lock:
             return {
