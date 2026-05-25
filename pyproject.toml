@@ -44,8 +44,18 @@ build-backend = "hatchling.build"
 [tool.hatch.version]
 source = "vcs"
 
+# Download the pinned mermaid bundle (VCS-ignored, ~3.2 MB) at build time so the
+# wheel/sdist ships it. See hatch_build.py and src/cognit/server/mermaid_asset.py.
+[tool.hatch.build.hooks.custom]
+path = "hatch_build.py"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/cognit"]
+# Force-include the VCS-ignored mermaid bundle produced by the build hook.
+artifacts = ["src/cognit/server/assets/mermaid.min.js"]
+
+[tool.hatch.build.targets.sdist]
+artifacts = ["src/cognit/server/assets/mermaid.min.js"]
 
 [tool.ruff]
 line-length = 100

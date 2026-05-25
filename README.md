@@ -188,7 +188,7 @@ COGNIT_LOG_LEVEL=DEBUG cognit take
 - A single CLI command: `cognit take`. Generates the quiz on first run, opens the browser, grades in-session, opt-in publish.
 - 4 question types (MCQ, mermaid-pick with auto-neutralized A/B/C/D labels, open, true/false).
 - Anthropic adapter via tool use (guaranteed-schema output), OAuth via the `claude` CLI.
-- Local FastAPI server with embedded HTML/JS/CSS + a vendored `mermaid.js` UMD bundle (no CDN at runtime).
+- Local FastAPI server with embedded HTML/JS/CSS + a `mermaid.js` UMD bundle vendored at build time (no CDN at runtime).
 
 **Future** (see [`ROADMAP.md`](ROADMAP.md)):
 

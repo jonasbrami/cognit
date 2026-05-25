@@ -32,3 +32,7 @@ wheels/
 
 # Node tooling (mermaid-cli installs here when used locally without -g)
 node_modules/
+
+# Vendored mermaid bundle: downloaded at build time / first run, never committed.
+# See hatch_build.py and src/cognit/server/mermaid_asset.py.
+src/cognit/server/assets/mermaid.min.js
