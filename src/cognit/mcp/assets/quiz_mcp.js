@@ -6,6 +6,8 @@ let answers = {};
 let sig = null;        // signature of the currently-rendered quiz
 let resultsEl = null;
 
+if (window.mermaid) window.mermaid.initialize({ startOnLoad: false, securityLevel: "strict" });
+
 function quizSig(quiz) {
   return JSON.stringify(quiz.questions.map((q) => [
     q.id, q.type, q.prompt,
@@ -51,7 +53,21 @@ function renderQuestion(q, i) {
   } else if (q.type === "tf") {
     ["true", "false"].forEach((v) => d.appendChild(optionEl(q.id, v, v)));
   } else if (q.type === "mermaid") {
-    Object.keys(q.options).forEach((k) => d.appendChild(optionEl(q.id, k, `diagram ${k}`)));
+    Object.entries(q.options).forEach(([label, src]) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "opt";
+      wrapper.dataset.qid = q.id;
+      wrapper.dataset.val = label;
+      wrapper.onclick = () => postAnswer(q.id, label);
+      const caption = document.createElement("div");
+      caption.textContent = `diagram ${label}`;
+      wrapper.appendChild(caption);
+      const merm = document.createElement("div");
+      merm.className = "mermaid";
+      merm.textContent = src;  // textContent only — never innerHTML (security)
+      wrapper.appendChild(merm);
+      d.appendChild(wrapper);
+    });
   } else if (q.type === "open") {
     const ta = document.createElement("textarea");
     ta.dataset.qid = q.id;
@@ -64,16 +80,19 @@ function renderQuestion(q, i) {
 }
 
 function refreshSelections() {
-  root.querySelectorAll("label.opt").forEach((el) => {
+  root.querySelectorAll(".opt").forEach((el) => {
     el.classList.toggle("sel", answers[el.dataset.qid] === el.dataset.val);
   });
 }
 
-function renderQuiz(quiz) {
+async function renderQuiz(quiz) {
   root.innerHTML = "";
   resultsEl = null;
   quiz.questions.forEach((q, i) => root.appendChild(renderQuestion(q, i)));
   refreshSelections();
+  if (window.mermaid) {
+    await window.mermaid.run({ querySelector: "#root .mermaid" }).catch((e) => console.error("mermaid.run failed:", e));
+  }
 }
 
 function showResults(results) {
