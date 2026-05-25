@@ -8,7 +8,15 @@ from pathlib import Path
 
 import pytest
 
-pytestmark = pytest.mark.skipif(shutil.which("claude") is None, reason="claude not installed")
+# Opt-in: this spawns a real, BILLED `claude` subprocess (~1-2 min, network) and must
+# not gate normal CI. Run with: COGNIT_RUN_E2E=1 uv run pytest tests/mcp/test_generation_e2e.py
+pytestmark = [
+    pytest.mark.skipif(shutil.which("claude") is None, reason="claude not installed"),
+    pytest.mark.skipif(
+        os.environ.get("COGNIT_RUN_E2E") != "1",
+        reason="billed e2e; set COGNIT_RUN_E2E=1 to run",
+    ),
+]
 
 
 def _free_port() -> int:
@@ -39,7 +47,7 @@ def test_agent_generates_quiz_from_diff(tmp_path: Path):
         ["claude", "-p", kickoff, "--mcp-config", str(mcp_cfg), "--strict-mcp-config",
          "--append-system-prompt", sys_prompt, "--permission-mode", "bypassPermissions",
          "--tools", "Read Grep Glob", "--model", "sonnet"],
-        env=env, capture_output=True, text=True, timeout=240, cwd=repo,
+        env=env, capture_output=True, text=True, timeout=600, cwd=repo,
     )
     assert snapshot.exists(), f"no snapshot written. claude stdout:\n{proc.stdout[-2000:]}\nstderr:\n{proc.stderr[-1000:]}"
     data = json.loads(snapshot.read_text())
