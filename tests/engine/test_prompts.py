@@ -24,6 +24,7 @@ def test_system_generate_has_quality_anchors():
     assert "usefulness check" in sys_prompt.lower()
     assert "explanation" in sys_prompt  # Output section requires it (enforced in Phase 3)
     assert "progression" in sys_prompt.lower()  # questions are ordered, not a bag
+    assert "set_quiz" in sys_prompt
 
 
 def test_system_grade_loads():
