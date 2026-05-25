@@ -41,6 +41,7 @@ def _neutralize_mermaid_labels(quiz: Quiz, rng: random.Random | None = None) -> 
                 prompt=q.prompt,
                 options=new_options,
                 answer=new_answer,
+                explanation=q.explanation,
             )
         )
     return Quiz(version="1", pr_number=quiz.pr_number, questions=new_questions)
