@@ -20,7 +20,7 @@ from typing import Any
 
 import uvicorn
 from mcp.server.fastmcp import FastMCP
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter
 
 from cognit.engine.llm import LLMClient
 from cognit.engine.llm_claude_agent import ClaudeAgentLLM
@@ -29,7 +29,7 @@ from cognit.ghio.diff import fetch_pr_diff, split_diff, summarize_diff
 from cognit.ghio.pr import post_comment as gh_post_comment
 from cognit.mcp.grading import grade_state
 from cognit.mcp.state import QuizState
-from cognit.mcp.validate import validate_and_prepare
+from cognit.mcp.validate import validate_and_prepare, validate_question
 from cognit.mcp.web import build_web_app
 
 logger = logging.getLogger("cognit.mcp.server")
@@ -46,10 +46,10 @@ def do_set_quiz(state: QuizState, draft: dict[str, Any]) -> dict[str, Any]:
 
 
 def do_replace_question(state: QuizState, index: int, question: dict[str, Any]) -> dict[str, Any]:
-    try:
-        parsed: Question = TypeAdapter(Question).validate_python(question)
-    except ValidationError as e:
-        return {"ok": False, "failures": [f"malformed question: {e.errors()}"]}
+    failures = validate_question(question)
+    if failures:
+        return {"ok": False, "failures": failures}
+    parsed: Question = TypeAdapter(Question).validate_python(question)
     try:
         state.replace_question(index, parsed)
     except IndexError:

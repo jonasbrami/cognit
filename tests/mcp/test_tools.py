@@ -65,3 +65,13 @@ def test_grade_without_quiz_returns_structured_failure(tmp_path: Path):
     out = srv.do_grade(_state(tmp_path), llm=FakeLLM())
     assert out["ok"] is False
     assert any("no quiz" in f for f in out["failures"])
+
+
+def test_replace_question_rejects_blank_explanation(tmp_path: Path) -> None:
+    state = _state(tmp_path)
+    srv.do_set_quiz(state, _draft())
+    bad = {"type": "mcq", "id": "q1c", "prompt": "p", "options": ["A", "B"],
+           "answer": "A", "explanation": ""}
+    out = srv.do_replace_question(state, 0, bad)
+    assert out["ok"] is False and any("explanation" in r for r in out["failures"])
+    assert state.quiz.questions[0].id == "q1"  # unchanged on rejection

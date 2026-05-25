@@ -12,17 +12,67 @@ agent so it self-corrects, exactly as the SDK hook's deny reason did.
 
 from __future__ import annotations
 
-from pydantic import ValidationError
+from typing import Any
+
+from pydantic import TypeAdapter, ValidationError
 
 from cognit.engine.generate import _neutralize_mermaid_labels
 from cognit.engine.mermaid import distinctness_failure, is_valid_mermaid, uniformity_failures
 from cognit.engine.models import (
     MCQQuestion,
     MermaidQuestion,
+    Question,
     Quiz,
     QuizDraft,
     TrueFalseQuestion,
 )
+
+
+def validate_question(q: dict[str, Any]) -> list[str]:
+    """Validate a single question dict.
+
+    Applies the same checks as ``validate_and_prepare``'s per-question loop:
+    - Pydantic shape parse (returns immediately on failure)
+    - Blank ``explanation`` for MCQ / TF / Mermaid questions
+    - For Mermaid: exactly 4 options, answer in keys, each option is valid mermaid,
+      uniformity and distinctness
+
+    Returns a list of failure strings (empty means valid).
+    """
+    try:
+        parsed: Question = TypeAdapter(Question).validate_python(q)
+    except ValidationError as e:
+        return [f"malformed question: {e.errors()}"]
+
+    failures: list[str] = []
+
+    if (
+        isinstance(parsed, (MCQQuestion, TrueFalseQuestion, MermaidQuestion))
+        and not parsed.explanation.strip()
+    ):
+        failures.append(
+            f"question {parsed.id!r}: missing a one-sentence `explanation` "
+            "(shown to the reader after they answer)"
+        )
+
+    if not isinstance(parsed, MermaidQuestion):
+        return failures
+
+    if len(parsed.options) != 4:
+        failures.append(
+            f"question {parsed.id!r}: must have exactly 4 options, has {len(parsed.options)}"
+        )
+        return failures
+
+    if parsed.answer not in parsed.options:  # defense-in-depth: Pydantic's model_validator already enforces this
+        failures.append(f"question {parsed.id!r}: answer {parsed.answer!r} is not one of the option keys")
+    for label, src in parsed.options.items():
+        if not is_valid_mermaid(src, strict=False):
+            failures.append(f"question {parsed.id!r} option {label}: invalid mermaid syntax")
+    failures.extend(f"question {parsed.id!r}: {m}" for m in uniformity_failures(parsed.options))
+    failures.extend(f"question {parsed.id!r}: {m}" for m in distinctness_failure(parsed.options))
+
+    return failures
 
 
 def validate_and_prepare(  # noqa: C901
@@ -41,28 +91,7 @@ def validate_and_prepare(  # noqa: C901
 
     failures: list[str] = []
     for q in parsed.questions:
-        if (
-            isinstance(q, (MCQQuestion, TrueFalseQuestion, MermaidQuestion))
-            and not q.explanation.strip()
-        ):
-            failures.append(
-                f"question {q.id!r}: missing a one-sentence `explanation` "
-                "(shown to the reader after they answer)"
-            )
-        if not isinstance(q, MermaidQuestion):
-            continue
-        if len(q.options) != 4:
-            failures.append(
-                f"question {q.id!r}: must have exactly 4 options, has {len(q.options)}"
-            )
-            continue
-        if q.answer not in q.options:  # defense-in-depth: Pydantic's model_validator already enforces this, so this is normally unreachable
-            failures.append(f"question {q.id!r}: answer {q.answer!r} is not one of the option keys")
-        for label, src in q.options.items():
-            if not is_valid_mermaid(src, strict=False):
-                failures.append(f"question {q.id!r} option {label}: invalid mermaid syntax")
-        failures.extend(f"question {q.id!r}: {m}" for m in uniformity_failures(q.options))
-        failures.extend(f"question {q.id!r}: {m}" for m in distinctness_failure(q.options))
+        failures.extend(validate_question(q.model_dump()))
 
     if failures:
         return None, failures
