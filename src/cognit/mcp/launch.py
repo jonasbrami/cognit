@@ -32,6 +32,15 @@ def _kickoff(pr_number: int, branch: str) -> str:
     )
 
 
+def _resume_kickoff(pr_number: int, branch: str) -> str:
+    return (
+        f"A quiz for PR #{pr_number} on branch `{branch}` already exists and is shown "
+        "in the reader's browser. Do NOT regenerate it. Wait for the reader to ask you "
+        "to skip/replace questions, make them harder, focus a file, or grade them — and "
+        "use the tools (replace_question / set_quiz / grade) when they do."
+    )
+
+
 def build_launch_spec(
     *,
     pr_url: str,
@@ -44,6 +53,7 @@ def build_launch_spec(
     settings_path: Path,
     system_prompt: str,
     model: str,
+    resume: bool = False,
 ) -> LaunchSpec:
     py = sys.executable
     mcp_config = {"mcpServers": {"cognit": {"command": py, "args": ["-m", "cognit.mcp"]}}}
@@ -76,7 +86,7 @@ def build_launch_spec(
         "--setting-sources", "user",
         "--permission-mode", "bypassPermissions",
         "--append-system-prompt", system_prompt,
-        _kickoff(pr_number, branch),
+        _resume_kickoff(pr_number, branch) if resume else _kickoff(pr_number, branch),
     ]
     return LaunchSpec(
         argv=argv,

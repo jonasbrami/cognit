@@ -33,3 +33,22 @@ def test_mcp_config_points_at_cognit_module(tmp_path: Path):
     )
     assert "cognit.mcp" in spec.mcp_config_json
     assert "PreToolUse" in spec.settings_json and "cognit.mcp.confine" in spec.settings_json
+
+
+def test_generate_kickoff_by_default(tmp_path: Path):
+    spec = build_launch_spec(
+        pr_url="u", pr_number=9, branch="b", port=1, snapshot_path=tmp_path / "s",
+        repo_root=tmp_path, mcp_config_path=tmp_path / "m", settings_path=tmp_path / "set",
+        system_prompt="S", model="m",
+    )
+    assert any("Generate a comprehension quiz" in a for a in spec.argv)
+
+
+def test_resume_kickoff_when_resume_true(tmp_path: Path):
+    spec = build_launch_spec(
+        pr_url="u", pr_number=9, branch="b", port=1, snapshot_path=tmp_path / "s",
+        repo_root=tmp_path, mcp_config_path=tmp_path / "m", settings_path=tmp_path / "set",
+        system_prompt="S", model="m", resume=True,
+    )
+    assert any("already exists" in a and "Do NOT regenerate" in a for a in spec.argv)
+    assert not any("Generate a comprehension quiz" in a for a in spec.argv)

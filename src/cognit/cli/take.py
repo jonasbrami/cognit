@@ -356,8 +356,16 @@ def run(
         raise typer.Exit(code=1)
     port = _free_port()
     snapshot = _cache_path_for(pr_url)
-    tmp = Path(tempfile.mkdtemp(prefix="cognit-"))
-    mcp_cfg, settings = tmp / "mcp.json", tmp / "settings.json"
+    resume = False
+    if snapshot.exists():
+        try:
+            resume = json.loads(snapshot.read_text()).get("quiz") is not None
+        except (json.JSONDecodeError, OSError):
+            resume = False
+    cfg_dir = snapshot.parent / "launch"
+    cfg_dir.mkdir(parents=True, exist_ok=True)
+    digest = snapshot.stem
+    mcp_cfg, settings = cfg_dir / f"{digest}-mcp.json", cfg_dir / f"{digest}-settings.json"
     spec = build_launch_spec(
         pr_url=pr_url,
         pr_number=info.number,
@@ -369,10 +377,16 @@ def run(
         settings_path=settings,
         system_prompt=_load_host_prompt(),
         model=model,
+        resume=resume,
     )
     mcp_cfg.write_text(spec.mcp_config_json)
     settings.write_text(spec.settings_json)
-    typer.echo(
-        f"cognit: launching quiz session for PR #{info.number} (browser opens shortly)…"
-    )
+    if resume:
+        typer.echo(
+            f"cognit: resuming existing quiz for PR #{info.number} (browser opens shortly)…"
+        )
+    else:
+        typer.echo(
+            f"cognit: launching quiz session for PR #{info.number} (browser opens shortly)…"
+        )
     os.execvpe("claude", spec.argv, {**os.environ, **spec.env})
