@@ -21,6 +21,7 @@ dependencies = [
     "fastapi>=0.136.1",
     "uvicorn>=0.47.0",
     "claude-agent-sdk>=0.1.44",
+    "mcp>=1.2",
 ]
 
 [project.scripts]
