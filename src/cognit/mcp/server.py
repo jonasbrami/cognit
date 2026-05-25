@@ -23,6 +23,7 @@ from pydantic import TypeAdapter, ValidationError
 from cognit.engine.llm import LLMClient
 from cognit.engine.llm_claude_agent import ClaudeAgentLLM
 from cognit.engine.models import Question
+from cognit.ghio.diff import fetch_pr_diff, split_diff, summarize_diff
 from cognit.ghio.pr import post_comment as gh_post_comment
 from cognit.mcp.grading import grade_state
 from cognit.mcp.state import QuizState
@@ -68,11 +69,57 @@ def do_grade(state: QuizState, *, llm: LLMClient) -> dict[str, Any]:
     return {"ok": True, **results.model_dump()}
 
 
+def do_file_diff(path: str, sections: dict[str, str]) -> str:
+    """Return the diff section for ONE changed file, tolerating basename and
+    repo-relative-suffix variants. Suffix matches only at path boundaries (so "a.py"
+    does NOT match "src/ya.py"), and refuses to guess when >1 file matches."""
+    path = path.strip()
+    section = sections.get(path) if path else None
+    if section is None and path:
+        hits = [
+            p for p in sections
+            if p.endswith("/" + path) or p.rsplit("/", 1)[-1] == path
+        ]
+        section = sections[hits[0]] if len(hits) == 1 else None
+    if section is None:
+        listing = ", ".join(sorted(sections)) or "(none)"
+        return f"No changed file matches {path!r}. Changed files: {listing}"
+    return section
+
+
+class _DiffProvider:
+    """Lazily fetch + cache the PR's filtered diff once per process (thread-safe)."""
+
+    def __init__(self, pr_url: str) -> None:
+        self._pr_url = pr_url
+        self._lock = threading.Lock()
+        self._sections: dict[str, str] | None = None
+        self._raw: str | None = None
+
+    def _ensure(self) -> None:
+        with self._lock:
+            if self._raw is None:
+                raw = fetch_pr_diff(self._pr_url)
+                sections = split_diff(raw)
+                self._raw, self._sections = raw, sections  # assign only after both succeed
+
+    def sections(self) -> dict[str, str]:
+        self._ensure()
+        assert self._sections is not None
+        return self._sections
+
+    def overview(self) -> str:
+        self._ensure()
+        assert self._raw is not None
+        return summarize_diff(self._raw)
+
+
 # ── process wiring ───────────────────────────────────────────────────────────
 
 
-def _build_mcp(state: QuizState, llm: LLMClient) -> FastMCP:
+def _build_mcp(state: QuizState, llm: LLMClient, pr_url: str) -> FastMCP:
     mcp = FastMCP("cognit")
+    diffs = _DiffProvider(pr_url)
 
     @mcp.tool()
     async def set_quiz(quiz: dict[str, Any]) -> dict[str, Any]:
@@ -96,6 +143,17 @@ def _build_mcp(state: QuizState, llm: LLMClient) -> FastMCP:
         """Grade the current answers (deterministic + strict open grading) and show the
         scorecard in the browser. Supply no judgments — scoring is computed here."""
         return await asyncio.to_thread(do_grade, state, llm=llm)
+
+    @mcp.tool()
+    def changed_files() -> str:
+        """List the PR's changed files with +/- line counts. Call this first, then
+        file_diff(path) for the files worth quizzing."""
+        return diffs.overview()
+
+    @mcp.tool()
+    def file_diff(path: str) -> str:
+        """Fetch the diff hunks for ONE changed file (a path from changed_files)."""
+        return do_file_diff(path, diffs.sections())
 
     return mcp
 
@@ -129,4 +187,4 @@ def main() -> None:
         target=_start_web, args=(state,), kwargs={"pr_url": pr_url, "port": port}, daemon=True
     ).start()
     llm: LLMClient = ClaudeAgentLLM()
-    _build_mcp(state, llm).run()
+    _build_mcp(state, llm, pr_url).run()
