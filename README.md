@@ -18,6 +18,7 @@ It's a local CLI that quizzes the **author** of a pull request — not the revie
 ## TL;DR
 
 - `cognit take` — auto-detects the PR for your current branch, generates a quiz from the diff via Claude, opens it in your browser, grades in-session.
+- **Steer it as it runs.** The quiz is hosted by an interactive Claude Code session — tell it in your terminal to skip a question, make one harder, or focus a file, and the browser updates live.
 - **Nothing is posted to GitHub** unless you click **Publish results to PR**. The quiz itself is never published; only a results comment, only if you ask.
 - Like CI checks or pre-commit hooks: opt-in. Failing doesn't gate anything — the value is the "aha" when you realize the code does something you didn't expect.
 - Anthropic-only for now. Requires a Claude Code OAuth session via `claude login` — no API-key path.
@@ -57,13 +58,14 @@ pipx install cognit
 cognit take
 ```
 
-That's it. The CLI:
+That's it. `cognit take`:
 
 1. Detects the PR for the current branch via `gh`.
-2. Generates a quiz from the diff (or loads it from the local cache at `$TMPDIR/cognit/` if you've already generated one for this PR).
+2. Launches Claude Code as the quiz **host** — a confined `claude` session that reads the diff and renders the quiz (or resumes a cached one from `$TMPDIR/cognit/`).
 3. Opens your browser to the quiz.
-4. Grades everything in-session when you hit Submit — MCQ / mermaid / true-false deterministically; open questions are LLM-graded against a rubric the generator wrote.
-5. Shows you results. Click **Publish results to PR** if you want a record on GitHub; otherwise nothing leaves your laptop.
+4. Lets you **steer it from the terminal** as you go — skip and replace a question, make one harder, focus a file — while the browser updates live.
+5. Grades everything when you hit Submit (or just tell the session "grade me") — MCQ / mermaid / true-false deterministically; open questions are LLM-graded against a rubric the generator wrote.
+6. Shows you results. Click **Publish results to PR** if you want a record on GitHub; otherwise nothing leaves your laptop.
 
 ![Results view: per-question scores, total, and the Discard / Publish-to-PR controls.](docs/img/cognit-results.png)
 
@@ -226,12 +228,14 @@ COGNIT_LOG_LEVEL=DEBUG cognit take
 
 ## Status
 
-**0.1.0 (first release):**
+**What it does today:**
 
-- A single CLI command: `cognit take`. Generates the quiz on first run, opens the browser, grades in-session, opt-in publish.
+- One command, `cognit take`: launches **Claude Code itself as the quiz host** — a confined interactive `claude` session wired to an MCP "render API". Generates the quiz from the diff on first run (or resumes a cached one), opens the browser, grades in-session, opt-in publish.
+- **Conversational steering.** Talk to the session in your terminal — skip-and-replace a question, make one harder, focus a file, grade — and the browser updates live. The browser displays the quiz, takes your answers, and gates Publish behind a human click.
 - 4 question types (MCQ, mermaid-pick with auto-neutralized A/B/C/D labels, open, true/false).
-- Anthropic adapter via tool use (guaranteed-schema output), OAuth via the `claude` CLI.
-- Local FastAPI server with embedded HTML/JS/CSS + a vendored `mermaid.js` UMD bundle (no CDN at runtime).
+- **Confined by construction.** The host session has only `Read`/`Grep`/`Glob` (repo-scoped by a fail-closed read hook), strict MCP, and isolated settings, so a prompt-injected diff can't read or write outside the repo. Grading is handler-owned (the model supplies no scores); Publish is the only outward-facing action.
+- Inference routes through the `claude` CLI (the host session) plus the Claude Agent SDK (the open-question grader) — OAuth via `claude login`, no API-key path.
+- Local FastAPI host with embedded HTML/JS/CSS + a vendored `mermaid.js` UMD bundle (no CDN at runtime); session state writes through to a JSON snapshot, so a refresh or crash loses nothing.
 
 **Future** (see [`ROADMAP.md`](ROADMAP.md)):
 
