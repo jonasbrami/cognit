@@ -33,7 +33,7 @@ It's a local CLI that quizzes the **author** of a pull request — not the revie
 | [`gh`](https://cli.github.com/) (logged in via `gh auth login`) | required | PR detection, diff fetch, comment publish |
 | `git` | required | working-tree access so the agent can read changed files |
 | A web browser | required | the quiz UI runs at `http://127.0.0.1:<random-port>` |
-| [`claude`](https://docs.claude.com/en/docs/claude-code/overview) CLI (logged in via `claude login`) | required | inference path — all model calls run through it |
+| [`claude`](https://docs.claude.com/en/docs/claude-code/overview) CLI (logged in via `claude login`) | required | hosts the quiz session and runs all model calls |
 | [`@mermaid-js/mermaid-cli`](https://github.com/mermaid-js/mermaid-cli) (`mmdc`) | optional | fastest path for server-side mermaid validation. If absent, `cognit` falls back to a lazily-built Docker parse-only image, then to a Python regex backstop — see [Mermaid validation](#mermaid-validation). |
 
 ### Install
@@ -149,15 +149,16 @@ stateDiagram-v2
 
 The LLM picks question count and type mix based on diff complexity — typically 2–10 questions across MCQ, mermaid-pick, open, and true/false. To suppress quiz generation on a specific PR, include `quiz: skip` in the PR description.
 
-> 0.1.0 ships as a local CLI only. A GitHub Actions wrapper that would auto-trigger the quiz on PR open is **not on the roadmap** — see [`ROADMAP.md`](ROADMAP.md).
+> cognit runs as a local CLI you invoke on demand — there's no bot or auto-trigger. A GitHub Actions wrapper that would fire the quiz on PR open is **not on the roadmap** (it's a voluntary self-check, not a gate) — see [`ROADMAP.md`](ROADMAP.md).
 
 ### Security model and inference routing
 
-All model calls route through the `claude` binary via the Claude Agent SDK — not the Anthropic Python SDK directly. This is load-bearing for three reasons:
+All model calls run through the `claude` binary — not the Anthropic Python SDK directly. (The host session *is* the interactive `claude` CLI; the only other call, the open-question grader, uses the Claude Agent SDK, which itself drives the same binary.) The confinement is load-bearing for four reasons:
 
 1. **Model access.** The direct Anthropic SDK with an OAuth token is gated to Haiku. Routing through the `claude` binary is what lets Claude Code OAuth and Max subscribers reach Sonnet and Opus.
-2. **Safety boundary.** The generation agent runs under `bypassPermissions`, which auto-runs every *available* tool without prompting. The real gate is the `tools=` parameter, which controls *availability* — not the allow-list (which only suppresses prompts). For generation, the available built-ins are `Read`, `Grep`, `Glob` only: no `Bash`, no `Write`, no `Edit`, so the agent can't shell out or mutate the working tree. (Why not a restricted-git Bash? `tools=` is coarse — you get the whole shell or none — and `git` is an RCE surface via config, external-diff drivers, and aliases. The `file_diff` MCP tool exposes one fixed `subprocess.run` argv instead.)
-3. **Read confinement.** A `PreToolUse` hook resolves every `Read`/`Grep`/`Glob` path against the repo root and denies traversals (`../`, absolute paths), so a prompt-injected PR body can't coax the agent into reading `~/.ssh/id_rsa`.
+2. **Safety boundary.** The host session runs under `bypassPermissions`, which auto-runs every *available* tool without prompting — so the real gate is the `--tools` list, which controls which tools *exist* in the session, not `--permission-mode` (which only controls prompting). The session gets `Read`, `Grep`, `Glob` only: no `Bash`, no `Write`, no `Edit`, so even a fully prompt-injected session can't shell out or mutate the working tree. (Why not a restricted-git Bash? `--tools` is coarse — whole shell or none — and `git` is an RCE surface via config, external-diff drivers, and aliases. The `file_diff` MCP tool exposes one fixed `subprocess.run` argv instead.)
+3. **Read confinement.** A `PreToolUse` hook resolves every `Read`/`Grep`/`Glob` path against the repo root and denies traversals (`../`, absolute paths), so a prompt-injected PR body can't coax the session into reading `~/.ssh/id_rsa`. The MCP render tools (`set_quiz`, `replace_question`, …) only validate and store structured data — they execute nothing.
+4. **Grading and publishing stay out of the model's hands.** Scores are computed by the handler — deterministic for MCQ/mermaid/true-false, a separate strict grader for open answers — so the session supplies no judgments. And posting results to the PR is a **human-gated browser button**, never an agent tool, so the model can't publish on its own even if it's hijacked.
 
 **Cost note.** The `total_cost_usd` logged at the end of a run is an *estimate* from token counts — what a pay-as-you-go API key would bill. Max-plan subscribers are not charged per call.
 
@@ -180,7 +181,7 @@ That's what `cognit` does, for code you're about to merge. The quiz is the diagn
 
 Comprehension-driven development means a change isn't done until the author has been examined on it. The LLM is the examiner; the human stays in the loop where it matters — building the mental model.
 
-*(Future: the author picks which areas of the diff to be examined on and at what depth — not in this release.)*
+*(You can already steer this conversationally — "focus on the retry path", "go deeper on `cache.py`", "make these harder". A structured way to choose areas and depth up front is still future.)*
 
 ## Reference
 
