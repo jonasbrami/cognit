@@ -6,9 +6,19 @@ from cognit.mcp.state import QuizState
 
 
 def _draft():
-    return {"version": "1", "questions": [
-        {"type": "mcq", "id": "q1", "prompt": "p", "options": ["A", "B"],
-         "answer": "A", "explanation": "because A"}]}
+    return {
+        "version": "1",
+        "questions": [
+            {
+                "type": "mcq",
+                "id": "q1",
+                "prompt": "p",
+                "options": ["A", "B"],
+                "answer": "A",
+                "explanation": "because A",
+            }
+        ],
+    }
 
 
 def _state(tmp_path: Path) -> QuizState:
@@ -24,8 +34,19 @@ def test_set_quiz_renders(tmp_path: Path):
 
 def test_set_quiz_rejects_with_reasons(tmp_path: Path):
     state = _state(tmp_path)
-    bad = {"version": "1", "questions": [{"type": "mcq", "id": "q1", "prompt": "p",
-            "options": ["A", "B"], "answer": "A", "explanation": ""}]}
+    bad = {
+        "version": "1",
+        "questions": [
+            {
+                "type": "mcq",
+                "id": "q1",
+                "prompt": "p",
+                "options": ["A", "B"],
+                "answer": "A",
+                "explanation": "",
+            }
+        ],
+    }
     out = srv.do_set_quiz(state, bad)
     assert out["ok"] is False
     assert any("explanation" in r for r in out["failures"])
@@ -35,8 +56,14 @@ def test_set_quiz_rejects_with_reasons(tmp_path: Path):
 def test_replace_question(tmp_path: Path):
     state = _state(tmp_path)
     srv.do_set_quiz(state, _draft())
-    new = {"type": "mcq", "id": "q1b", "prompt": "p2", "options": ["X", "Y"],
-           "answer": "Y", "explanation": "because Y"}
+    new = {
+        "type": "mcq",
+        "id": "q1b",
+        "prompt": "p2",
+        "options": ["X", "Y"],
+        "answer": "Y",
+        "explanation": "because Y",
+    }
     out = srv.do_replace_question(state, 0, new)
     assert out["ok"] is True
     assert state.quiz.questions[0].id == "q1b"
@@ -70,8 +97,14 @@ def test_grade_without_quiz_returns_structured_failure(tmp_path: Path):
 def test_replace_question_rejects_blank_explanation(tmp_path: Path) -> None:
     state = _state(tmp_path)
     srv.do_set_quiz(state, _draft())
-    bad = {"type": "mcq", "id": "q1c", "prompt": "p", "options": ["A", "B"],
-           "answer": "A", "explanation": ""}
+    bad = {
+        "type": "mcq",
+        "id": "q1c",
+        "prompt": "p",
+        "options": ["A", "B"],
+        "answer": "A",
+        "explanation": "",
+    }
     out = srv.do_replace_question(state, 0, bad)
     assert out["ok"] is False and any("explanation" in r for r in out["failures"])
     assert state.quiz.questions[0].id == "q1"  # unchanged on rejection

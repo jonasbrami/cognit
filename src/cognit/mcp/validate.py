@@ -64,8 +64,12 @@ def validate_question(q: dict[str, Any]) -> list[str]:
         )
         return failures
 
-    if parsed.answer not in parsed.options:  # defense-in-depth: Pydantic's model_validator already enforces this
-        failures.append(f"question {parsed.id!r}: answer {parsed.answer!r} is not one of the option keys")
+    if (
+        parsed.answer not in parsed.options
+    ):  # defense-in-depth: Pydantic's model_validator already enforces this
+        failures.append(
+            f"question {parsed.id!r}: answer {parsed.answer!r} is not one of the option keys"
+        )
     for label, src in parsed.options.items():
         if not is_valid_mermaid(src, strict=False):
             failures.append(f"question {parsed.id!r} option {label}: invalid mermaid syntax")

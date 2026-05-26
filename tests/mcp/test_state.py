@@ -42,7 +42,7 @@ def test_replace_question_drops_old_answer(tmp_path: Path) -> None:
     s.set_quiz(_quiz())  # question id "q1"
     s.record_answer("q1", "A")
     s.replace_question(0, MCQQuestion(id="q1b", prompt="p2", options=["X", "Y"], answer="Y"))
-    assert "q1" not in s.answers          # old answer dropped
+    assert "q1" not in s.answers  # old answer dropped
     assert s.quiz is not None and s.quiz.questions[0].id == "q1b"  # new question in place
 
 
@@ -56,8 +56,11 @@ def test_corrupt_snapshot_loads_as_empty(tmp_path: Path) -> None:
 def test_set_results_stored_and_in_snapshot(tmp_path: Path) -> None:
     s = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
     s.set_quiz(_quiz())
-    r = Results(pr_number=7, total_score=100,
-                per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")])
+    r = Results(
+        pr_number=7,
+        total_score=100,
+        per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")],
+    )
     s.set_results(r)
     assert s.results is not None and s.results.total_score == 100
     snap = s.snapshot()
@@ -76,8 +79,13 @@ def test_publishable_returns_none_until_graded(tmp_path: Path) -> None:
     s = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
     s.set_quiz(_quiz())
     assert s.publishable() is None
-    s.set_results(Results(pr_number=7, total_score=100,
-                          per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")]))
+    s.set_results(
+        Results(
+            pr_number=7,
+            total_score=100,
+            per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")],
+        )
+    )
     snap = s.publishable()
     assert snap is not None and snap[0].questions[0].id == "q1" and snap[2].total_score == 100
 

@@ -51,7 +51,8 @@ def build_web_app(
     app.mount("/static", StaticFiles(directory=str(_ASSETS_DIR)), name="static")
     pr_url_attr = _html.escape(pr_url, quote=True)
     index_html = (
-        (_ASSETS_DIR / "index.html").read_text()
+        (_ASSETS_DIR / "index.html")
+        .read_text()
         .replace("__PR__", str(state.pr_number))
         .replace("__PR_URL_ATTR__", pr_url_attr)
     )
@@ -88,7 +89,9 @@ def build_web_app(
     def publish() -> JSONResponse:
         snap = state.publishable()
         if snap is None:
-            return JSONResponse({"ok": False, "error": "nothing graded to publish"}, status_code=409)
+            return JSONResponse(
+                {"ok": False, "error": "nothing graded to publish"}, status_code=409
+            )
         quiz, answers_map, results = snap
         answers = Answers(
             pr_number=state.pr_number,

@@ -2,19 +2,30 @@ from cognit.mcp.validate import validate_and_prepare, validate_question
 
 
 def _mcq(qid="q1"):
-    return {"type": "mcq", "id": qid, "prompt": "p", "options": ["A", "B"],
-            "answer": "A", "explanation": "because A"}
+    return {
+        "type": "mcq",
+        "id": qid,
+        "prompt": "p",
+        "options": ["A", "B"],
+        "answer": "A",
+        "explanation": "because A",
+    }
 
 
 def _good_mermaid():
-    return {"type": "mermaid", "id": "m1", "prompt": "which flow?",
-            "options": {
-                "A": "flowchart LR\nA[req]-->B[auth]-->C[route]",
-                "B": "flowchart LR\nA[req]-->B[route]-->C[auth]",
-                "C": "flowchart LR\nA[req]-->B[auth]-->C[cache]",
-                "D": "flowchart LR\nA[req]-->B[cache]-->C[auth]",
-            },
-            "answer": "A", "explanation": "auth precedes routing"}
+    return {
+        "type": "mermaid",
+        "id": "m1",
+        "prompt": "which flow?",
+        "options": {
+            "A": "flowchart LR\nA[req]-->B[auth]-->C[route]",
+            "B": "flowchart LR\nA[req]-->B[route]-->C[auth]",
+            "C": "flowchart LR\nA[req]-->B[auth]-->C[cache]",
+            "D": "flowchart LR\nA[req]-->B[cache]-->C[auth]",
+        },
+        "answer": "A",
+        "explanation": "auth precedes routing",
+    }
 
 
 def test_valid_quiz_returns_quiz_no_failures():
@@ -40,30 +51,59 @@ def test_missing_explanation_fails():
 
 
 def test_malformed_shape_fails():
-    quiz, failures = validate_and_prepare({"version": "1", "questions": [{"type": "mcq"}]}, pr_number=7)
+    quiz, failures = validate_and_prepare(
+        {"version": "1", "questions": [{"type": "mcq"}]}, pr_number=7
+    )
     assert quiz is None
     assert any("malformed" in f for f in failures)
 
 
 def test_validate_question_flags_blank_explanation() -> None:
-    fails = validate_question({"type": "mcq", "id": "q", "prompt": "p",
-                               "options": ["A", "B"], "answer": "A", "explanation": ""})
+    fails = validate_question(
+        {
+            "type": "mcq",
+            "id": "q",
+            "prompt": "p",
+            "options": ["A", "B"],
+            "answer": "A",
+            "explanation": "",
+        }
+    )
     assert any("explanation" in f for f in fails)
 
 
 def test_validate_question_ok_for_good_mcq() -> None:
-    assert validate_question({"type": "mcq", "id": "q", "prompt": "p",
-                              "options": ["A", "B"], "answer": "A", "explanation": "why"}) == []
+    assert (
+        validate_question(
+            {
+                "type": "mcq",
+                "id": "q",
+                "prompt": "p",
+                "options": ["A", "B"],
+                "answer": "A",
+                "explanation": "why",
+            }
+        )
+        == []
+    )
 
 
 def test_validate_question_rejects_bad_mermaid_count() -> None:
-    q = {"type": "mermaid", "id": "m", "prompt": "p", "answer": "A", "explanation": "e",
-         "options": {"A": "flowchart LR\nA-->B", "B": "flowchart LR\nA-->C"}}
+    q = {
+        "type": "mermaid",
+        "id": "m",
+        "prompt": "p",
+        "answer": "A",
+        "explanation": "e",
+        "options": {"A": "flowchart LR\nA-->B", "B": "flowchart LR\nA-->C"},
+    }
     assert any("exactly 4 options" in f for f in validate_question(q))
 
 
 def test_valid_mermaid_answer_survives_shuffle():
-    q, failures = validate_and_prepare({"version": "1", "questions": [_good_mermaid()]}, pr_number=7)
+    q, failures = validate_and_prepare(
+        {"version": "1", "questions": [_good_mermaid()]}, pr_number=7
+    )
     assert failures == []
     mq = q.questions[0]
     assert mq.answer in mq.options

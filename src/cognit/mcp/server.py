@@ -78,10 +78,7 @@ def do_file_diff(path: str, sections: dict[str, str]) -> str:
     path = path.strip()
     section = sections.get(path) if path else None
     if section is None and path:
-        hits = [
-            p for p in sections
-            if p.endswith("/" + path) or p.rsplit("/", 1)[-1] == path
-        ]
+        hits = [p for p in sections if p.endswith("/" + path) or p.rsplit("/", 1)[-1] == path]
         section = sections[hits[0]] if len(hits) == 1 else None
     if section is None:
         listing = ", ".join(sorted(sections)) or "(none)"
@@ -175,6 +172,7 @@ def _start_web(state: QuizState, *, llm: LLMClient, pr_url: str, port: int) -> N
 
     def _open() -> None:
         import time
+
         time.sleep(1.0)  # give uvicorn a moment to bind
         try:
             webbrowser.open(url)

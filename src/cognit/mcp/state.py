@@ -13,6 +13,7 @@ from cognit.engine.models import Question, Quiz, Results
 
 class QuizState:
     """Session state for one PR review. Callers mutate only through the methods (which lock + persist); do not write the attributes directly."""
+
     def __init__(self, *, pr_number: int, snapshot_path: Path) -> None:
         self.pr_number = pr_number
         self._snapshot_path = snapshot_path

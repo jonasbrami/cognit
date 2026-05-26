@@ -40,8 +40,14 @@ def _serve(app: FastAPI, port: int):
 @pytest.fixture
 def client(tmp_path: Path):
     state = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
-    state.set_quiz(Quiz(pr_number=7, questions=[
-        MCQQuestion(id="q1", prompt="p", options=["A", "B"], answer="A", explanation="x")]))
+    state.set_quiz(
+        Quiz(
+            pr_number=7,
+            questions=[
+                MCQQuestion(id="q1", prompt="p", options=["A", "B"], answer="A", explanation="x")
+            ],
+        )
+    )
     posted: list[str] = []
     app = build_web_app(state, post_comment=lambda b: (posted.append(b), "http://c/1")[1])
     port = _free_port()
@@ -69,8 +75,14 @@ def test_post_answer_records(client):
 def test_publish_calls_post_comment(client):
     c, state, posted = client
     from cognit.engine.models import Results, QuestionResult
-    state.set_results(Results(pr_number=7, total_score=100,
-                              per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")]))
+
+    state.set_results(
+        Results(
+            pr_number=7,
+            total_score=100,
+            per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")],
+        )
+    )
     r = c.post("/publish")
     assert r.status_code == 200 and r.json()["ok"] is True
     assert len(posted) == 1
@@ -88,12 +100,21 @@ def test_grade_endpoint_grades_and_stores(tmp_path: Path) -> None:
     from cognit.engine.models import QuestionResult, Results
 
     state = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
-    state.set_quiz(Quiz(pr_number=7, questions=[
-        MCQQuestion(id="q1", prompt="p", options=["A", "B"], answer="A", explanation="x")]))
+    state.set_quiz(
+        Quiz(
+            pr_number=7,
+            questions=[
+                MCQQuestion(id="q1", prompt="p", options=["A", "B"], answer="A", explanation="x")
+            ],
+        )
+    )
 
     def fake_grade() -> Results:
-        r = Results(pr_number=7, total_score=100,
-                    per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")])
+        r = Results(
+            pr_number=7,
+            total_score=100,
+            per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")],
+        )
         state.set_results(r)  # handler-owned: real grade_state stores into state too
         return r
 
@@ -122,10 +143,21 @@ def test_publish_surfaces_post_failure_as_502(tmp_path: Path) -> None:
     from cognit.engine.models import QuestionResult, Results
 
     state = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
-    state.set_quiz(Quiz(pr_number=7, questions=[
-        MCQQuestion(id="q1", prompt="p", options=["A", "B"], answer="A", explanation="x")]))
-    state.set_results(Results(pr_number=7, total_score=100,
-                              per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")]))
+    state.set_quiz(
+        Quiz(
+            pr_number=7,
+            questions=[
+                MCQQuestion(id="q1", prompt="p", options=["A", "B"], answer="A", explanation="x")
+            ],
+        )
+    )
+    state.set_results(
+        Results(
+            pr_number=7,
+            total_score=100,
+            per_question=[QuestionResult(question_id="q1", correct=True, score=100, feedback="")],
+        )
+    )
 
     def boom(_body: str) -> str:
         raise subprocess.CalledProcessError(1, ["gh"], stderr="secondary rate limit exceeded")
@@ -144,8 +176,14 @@ def test_publish_surfaces_post_failure_as_502(tmp_path: Path) -> None:
 
 def test_publish_before_grading_409(tmp_path: Path) -> None:
     state = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
-    state.set_quiz(Quiz(pr_number=7, questions=[
-        MCQQuestion(id="q1", prompt="p", options=["A", "B"], answer="A", explanation="x")]))
+    state.set_quiz(
+        Quiz(
+            pr_number=7,
+            questions=[
+                MCQQuestion(id="q1", prompt="p", options=["A", "B"], answer="A", explanation="x")
+            ],
+        )
+    )
     app = build_web_app(state, post_comment=lambda b: "http://c/1")
     port = _free_port()
     server, t = _serve(app, port)

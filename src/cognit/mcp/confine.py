@@ -19,9 +19,17 @@ _FS_KEYS = ("file_path", "path", "notebook_path")
 
 
 def _deny(reason: str) -> None:
-    print(json.dumps({"hookSpecificOutput": {
-        "hookEventName": "PreToolUse", "permissionDecision": "deny",
-        "permissionDecisionReason": reason}}))
+    print(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": reason,
+                }
+            }
+        )
+    )
     sys.exit(0)
 
 

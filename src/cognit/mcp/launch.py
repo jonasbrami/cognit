@@ -79,20 +79,27 @@ def build_launch_spec(
     }
     argv = [
         "claude",
-        "--model", model,
-        "--tools", "Read Grep Glob",
+        "--model",
+        model,
+        "--tools",
+        "Read Grep Glob",
         "--strict-mcp-config",
-        "--mcp-config", str(mcp_config_path),
-        "--settings", str(settings_path),
-        "--setting-sources", "user",
-        "--permission-mode", "bypassPermissions",
+        "--mcp-config",
+        str(mcp_config_path),
+        "--settings",
+        str(settings_path),
+        "--setting-sources",
+        "user",
+        "--permission-mode",
+        "bypassPermissions",
     ]
     # --debug-file persists claude's own debug stream (incl. MCP traffic + tool errors)
     # without flooding the interactive terminal. Opt-in via COGNIT_LOG_LEVEL=DEBUG.
     if debug_log is not None:
         argv += ["--debug-file", str(debug_log)]
     argv += [
-        "--append-system-prompt", system_prompt,
+        "--append-system-prompt",
+        system_prompt,
         # The trailing positional is claude's initial prompt — must stay last.
         _resume_kickoff(pr_number, branch) if resume else _kickoff(pr_number, branch),
     ]

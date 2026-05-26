@@ -113,7 +113,9 @@ def run(
     try:
         info = fetch_pr_info(pr_url)
     except subprocess.CalledProcessError:
-        typer.echo(f"error: could not fetch PR info for {pr_url} (is `gh` installed and authenticated?)")
+        typer.echo(
+            f"error: could not fetch PR info for {pr_url} (is `gh` installed and authenticated?)"
+        )
         raise typer.Exit(code=1)
     if "quiz: skip" in info.body.lower():
         typer.echo("quiz: skip in PR body — skipping.")
@@ -167,11 +169,7 @@ def run(
     if debug_log is not None:
         typer.echo(f"cognit: debug logging on — claude debug log → {debug_log}")
     if resume:
-        typer.echo(
-            f"cognit: resuming existing quiz for PR #{info.number} (browser opens shortly)…"
-        )
+        typer.echo(f"cognit: resuming existing quiz for PR #{info.number} (browser opens shortly)…")
     else:
-        typer.echo(
-            f"cognit: launching quiz session for PR #{info.number} (browser opens shortly)…"
-        )
+        typer.echo(f"cognit: launching quiz session for PR #{info.number} (browser opens shortly)…")
     os.execvpe("claude", spec.argv, {**os.environ, **spec.env})
