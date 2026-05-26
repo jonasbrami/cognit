@@ -14,6 +14,8 @@ Endpoints:
 from __future__ import annotations
 
 import html as _html
+import logging
+import subprocess
 from collections.abc import Callable
 from pathlib import Path
 
@@ -25,6 +27,8 @@ from fastapi.staticfiles import StaticFiles
 from cognit.comment.render import render_results_inlined
 from cognit.engine.models import AnswerEntry, Answers, Results
 from cognit.mcp.state import QuizState
+
+logger = logging.getLogger("cognit.mcp.web")
 
 _ASSETS_DIR = Path(__file__).parent / "assets"
 
@@ -90,7 +94,21 @@ def build_web_app(
             pr_number=state.pr_number,
             entries=[AnswerEntry(question_id=q, value=v) for q, v in answers_map.items()],
         )
-        url = post_comment(render_results_inlined(quiz, answers, results))
+        # Posting goes through `gh` (subprocess + network), so it can fail transiently
+        # (rate limits, blips, auth). Surface the real reason to the browser and log it
+        # rather than letting it bubble into a bare, undiagnosable 500.
+        try:
+            url = post_comment(render_results_inlined(quiz, answers, results))
+        except subprocess.CalledProcessError as e:
+            detail = (e.stderr or "").strip() or f"gh exited {e.returncode}"
+            logger.exception("publish failed: posting the PR comment errored")
+            return JSONResponse(
+                {"ok": False, "error": f"posting the comment failed — {detail}"},
+                status_code=502,
+            )
+        except Exception as e:  # noqa: BLE001 — never a silent 500; report what broke
+            logger.exception("publish failed")
+            return JSONResponse({"ok": False, "error": f"publish failed — {e}"}, status_code=502)
         return JSONResponse({"ok": True, "total_score": results.total_score, "comment_url": url})
 
     @app.get("/", response_class=HTMLResponse)

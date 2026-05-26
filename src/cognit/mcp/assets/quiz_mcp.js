@@ -589,7 +589,9 @@ async function publishResults() {
   }
   if (!resp.ok) {
     if (btn) { btn.disabled = false; btn.textContent = "Publish to PR"; }
-    alert(`Publish failed: ${resp.status}`);
+    let detail = `HTTP ${resp.status}`;
+    try { const j = await resp.json(); if (j && j.error) detail = j.error; } catch (e) { /* non-JSON */ }
+    alert(`Publish failed: ${detail}`);
     return;
   }
   const data = await resp.json();
