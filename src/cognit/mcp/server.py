@@ -126,8 +126,12 @@ def _build_mcp(state: QuizState, llm: LLMClient, pr_url: str) -> FastMCP:
     @mcp.tool()
     async def set_quiz(quiz: dict[str, Any]) -> dict[str, Any]:
         """Render/replace the whole quiz in the browser. `quiz` is {version, questions:[...]}.
+        Per-question shapes (note the `answer` field differs by type): mcq -> options is a
+        list of strings, answer is the full option text; mermaid -> options keyed A/B/C/D,
+        answer is the key; tf -> answer is a boolean; open -> needs a rubric, no answer.
         Rejected (with reasons to fix) if any mermaid set is invalid/non-uniform/non-distinct
-        or any question lacks an explanation."""
+        or any question lacks an explanation. A rejection renders NOTHING — the browser is
+        unchanged — so fix the reasons and resubmit the whole quiz; iterating is free."""
         return await asyncio.to_thread(do_set_quiz, state, quiz)
 
     @mcp.tool()
