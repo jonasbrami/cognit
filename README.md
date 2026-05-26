@@ -69,37 +69,80 @@ That's it. The CLI:
 
 ## How it works
 
+`cognit take` doesn't make a one-shot generation call — it launches **Claude Code itself as the quiz host**. The CLI `execvpe`s into a *confined* interactive `claude` session wired to a small MCP server (the quiz "render API"). You converse in the terminal to steer the quiz — skip and replace a question, make one harder, focus a file, grade — while the browser displays the quiz, takes your answers, and gates Publish behind a human click.
+
+There are **two Claude invocations**, and they're different mechanisms: the *host session* is the interactive `claude` CLI you talk to; the only SDK call is the short *open-question grader*. Neither surface (terminal or browser) writes to the other directly — they share one authoritative object, **`QuizState`**, which writes through to a JSON snapshot so a refresh or crash loses nothing.
+
+#### The interaction loop
+
+```mermaid
+flowchart LR
+    You([You])
+    Host["claude CLI host session<br/>(system prompt + MCP tools)"]
+    State[("QuizState<br/>quiz · answers · results")]
+    UI["Browser quiz page<br/>(polls /state)"]
+    Grader["grade_open<br/>(claude_agent_sdk)"]
+
+    You -->|"steer in the terminal"| Host
+    You -->|"answer · Submit · Publish"| UI
+    Host <-->|"set_quiz · replace_question<br/>get_answers · grade"| State
+    UI -->|"POST /answer · /grade · /publish"| State
+    State -->|"GET /state (1s poll)"| UI
+    State -.->|"open Q only"| Grader
+    Grader -.->|"score + feedback"| State
+```
+
+#### End to end
+
 ```mermaid
 sequenceDiagram
-  actor User
-  participant CLI as cognit take
-  participant gh as gh CLI
-  participant Agent as Claude (via claude CLI)
-  participant Web as Local browser
+    actor You
+    participant CLI as cognit take
+    participant Host as claude CLI host
+    participant State as QuizState
+    participant Web as Browser
+    participant SDK as grade_open (SDK)
 
-  User->>CLI: cognit take
-  CLI->>gh: pr view (title, body)
-  gh-->>CLI: title, body
-  CLI->>Agent: draft_quiz call (title, body)
-  Agent->>gh: pr_diff tool (strips vendored/lock/binary)
-  gh-->>Agent: filtered diff
-  Agent->>Agent: Read/Grep/Glob on working tree
-  Agent->>Agent: submit_quiz (complete quiz, mermaid fully rendered)
-  Note over Agent: PreToolUse hook validates shape +<br/>mermaid syntax + diagram uniformity
-  loop until diagrams valid (same turn)
-    Agent->>Agent: hook denies → self-correct → resubmit
-  end
-  Agent-->>CLI: QuizDraft (rendered diagrams + correct keys)
-  CLI->>Web: serve quiz (inline JSON)
-  User->>Web: answer + submit
-  Web->>CLI: POST /submit
-  CLI->>Agent: grade_open per open Q
-  Agent-->>CLI: score + feedback
-  CLI-->>Web: Results
-  opt user clicks Publish
-    Web->>CLI: POST /publish
-    CLI->>gh: post results comment
-  end
+    You->>CLI: cognit take --pr ...
+    CLI->>Host: execvpe confined claude<br/>(system prompt + kickoff + MCP tools)
+    Note over Host: confined to Read/Grep/Glob (repo-scoped)<br/>the diff is fetched on demand, never preloaded
+    Host->>Host: changed_files, file_diff(path), Read/Grep/Glob
+    Host->>State: set_quiz(quiz)
+    State-->>Web: GET /state renders the questions
+
+    You->>Host: "skip Q2, make it harder"
+    Host->>State: replace_question(1, ...)
+    State-->>Web: /state re-renders Q2 only
+
+    You->>Web: pick answers
+    Web->>State: POST /answer
+
+    You->>Web: Submit quiz
+    Web->>State: POST /grade
+    Note over State,SDK: mcq / tf / mermaid scored deterministically<br/>open answers go to the SDK grader
+    State->>SDK: grade_open(prompt, rubric, answer)
+    SDK-->>State: score + feedback
+    State-->>Web: /state renders the scorecard
+
+    opt You click Publish
+        Web->>State: POST /publish
+        State-->>You: results comment posted to the PR
+    end
+```
+
+#### What the browser shows
+
+The page is a thin projection of `QuizState`: it polls `GET /state` and renders whichever phase the state is in, re-rendering only when the quiz's structure changes (so steering a single question never clobbers your other answers).
+
+```mermaid
+stateDiagram-v2
+    [*] --> Waiting: no quiz yet
+    Waiting --> Answering: set_quiz lands in /state
+    Answering --> Answering: replace_question<br/>(re-render on change only)
+    Answering --> Results: results in /state<br/>(your Submit, or "grade me" in the terminal)
+    Results --> Published: POST /publish (human-gated)
+    Results --> Answering: Discard, or quiz regenerated
+    Published --> Answering: agent regenerates the quiz
 ```
 
 The LLM picks question count and type mix based on diff complexity — typically 2–10 questions across MCQ, mermaid-pick, open, and true/false. To suppress quiz generation on a specific PR, include `quiz: skip` in the PR description.
