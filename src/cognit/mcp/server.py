@@ -160,8 +160,13 @@ def _build_mcp(state: QuizState, llm: LLMClient, pr_url: str) -> FastMCP:
     return mcp
 
 
-def _start_web(state: QuizState, *, pr_url: str, port: int) -> None:
-    app = build_web_app(state, post_comment=lambda body: gh_post_comment(pr_url, body))
+def _start_web(state: QuizState, *, llm: LLMClient, pr_url: str, port: int) -> None:
+    app = build_web_app(
+        state,
+        post_comment=lambda body: gh_post_comment(pr_url, body),
+        grade=lambda: grade_state(state, llm=llm),
+        pr_url=pr_url,
+    )
     url = f"http://127.0.0.1:{port}"
 
     def _open() -> None:
@@ -214,8 +219,11 @@ def main() -> None:
         s.bind(("127.0.0.1", port))
 
     print(f"cognit quiz: http://127.0.0.1:{port}", file=sys.stderr)
-    threading.Thread(
-        target=_start_web, args=(state,), kwargs={"pr_url": pr_url, "port": port}, daemon=True
-    ).start()
     llm: LLMClient = ClaudeAgentLLM()
+    threading.Thread(
+        target=_start_web,
+        args=(state,),
+        kwargs={"llm": llm, "pr_url": pr_url, "port": port},
+        daemon=True,
+    ).start()
     _build_mcp(state, llm, pr_url).run()

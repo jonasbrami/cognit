@@ -2,11 +2,44 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>cognit</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>cognit · PR #__PR__</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
-  <main id="root">Loading…</main>
+
+  <!-- decorative topbar: borrows GitHub chrome, branded cognit -->
+  <header class="topbar">
+    <span class="topbar__logo" aria-hidden="true"></span>
+    <span class="topbar__brand">cognit</span>
+    <span class="topbar__spacer"></span>
+    <span class="topbar__pr-link"><a href="__PR_URL_ATTR__">#__PR__ on GitHub ↗</a></span>
+  </header>
+
+  <!-- repo header + tab strip (decorative chrome, "Author quiz" is the only active tab) -->
+  <section class="repohead">
+    <div class="repohead__title">
+      <span class="badge badge--quiz">▸ author quiz</span>
+      <span>PR <a href="__PR_URL_ATTR__">#__PR__</a></span>
+    </div>
+    <div class="tabs" role="tablist">
+      <div class="tab tab--active" role="tab" aria-selected="true">Author quiz</div>
+    </div>
+  </section>
+
+  <!-- main + sidebar grid; both populated by quiz_mcp.js from /state -->
+  <div class="container">
+    <main id="questions-root" class="main"></main>
+    <aside id="sidebar-root" class="sidebar"></aside>
+  </div>
+
+  <!-- sticky review bar (state-dependent: submit / publish / published) -->
+  <footer id="reviewbar" class="reviewbar"></footer>
+
+  <!-- mermaid UMD: attaches window.mermaid -->
   <script src="/static/mermaid.min.js"></script>
   <script src="/static/quiz_mcp.js"></script>
 </body>
