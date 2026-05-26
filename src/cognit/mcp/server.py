@@ -181,7 +181,24 @@ def _start_web(state: QuizState, *, pr_url: str, port: int) -> None:
         raise
 
 
+def _configure_logging() -> None:
+    """Emit the package's logs at COGNIT_LOG_LEVEL (default WARNING) to stderr.
+
+    Never stdout: this process speaks MCP JSON-RPC over stdout, so any stray write
+    there corrupts the protocol. claude captures our stderr to disk under
+    ~/.cache/claude-cli-nodejs/.../mcp-logs-cognit/, making DEBUG runs troubleshootable.
+    """
+    level_name = os.environ.get("COGNIT_LOG_LEVEL", "WARNING").upper()
+    logging.basicConfig(
+        level=getattr(logging, level_name, logging.WARNING),
+        format="%(name)s %(levelname)s: %(message)s",
+        stream=sys.stderr,
+        force=True,
+    )
+
+
 def main() -> None:
+    _configure_logging()
     pr_url = os.environ["COGNIT_PR_URL"]
     pr_number = int(os.environ["COGNIT_PR_NUMBER"])
     port = int(os.environ["COGNIT_HTTP_PORT"])

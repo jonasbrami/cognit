@@ -143,6 +143,11 @@ def run(
     cfg_dir.mkdir(parents=True, exist_ok=True)
     digest = snapshot.stem
     mcp_cfg, settings = cfg_dir / f"{digest}-mcp.json", cfg_dir / f"{digest}-settings.json"
+    # When debug logging is on, persist claude's own debug stream to a file alongside the
+    # config. The MCP server's stderr (verbose at this level) is captured separately by
+    # claude under ~/.cache/claude-cli-nodejs/.../mcp-logs-cognit/.
+    debug = os.environ.get("COGNIT_LOG_LEVEL", "").upper() == "DEBUG"
+    debug_log = cfg_dir / f"{digest}-claude-debug.log" if debug else None
     spec = build_launch_spec(
         pr_url=pr_url,
         pr_number=info.number,
@@ -155,9 +160,12 @@ def run(
         system_prompt=_load_host_prompt(),
         model=model,
         resume=resume,
+        debug_log=debug_log,
     )
     mcp_cfg.write_text(spec.mcp_config_json)
     settings.write_text(spec.settings_json)
+    if debug_log is not None:
+        typer.echo(f"cognit: debug logging on — claude debug log → {debug_log}")
     if resume:
         typer.echo(
             f"cognit: resuming existing quiz for PR #{info.number} (browser opens shortly)…"

@@ -54,6 +54,7 @@ def build_launch_spec(
     system_prompt: str,
     model: str,
     resume: bool = False,
+    debug_log: Path | None = None,
 ) -> LaunchSpec:
     py = sys.executable
     mcp_config = {"mcpServers": {"cognit": {"command": py, "args": ["-m", "cognit.mcp"]}}}
@@ -85,7 +86,14 @@ def build_launch_spec(
         "--settings", str(settings_path),
         "--setting-sources", "user",
         "--permission-mode", "bypassPermissions",
+    ]
+    # --debug-file persists claude's own debug stream (incl. MCP traffic + tool errors)
+    # without flooding the interactive terminal. Opt-in via COGNIT_LOG_LEVEL=DEBUG.
+    if debug_log is not None:
+        argv += ["--debug-file", str(debug_log)]
+    argv += [
         "--append-system-prompt", system_prompt,
+        # The trailing positional is claude's initial prompt — must stay last.
         _resume_kickoff(pr_number, branch) if resume else _kickoff(pr_number, branch),
     ]
     return LaunchSpec(

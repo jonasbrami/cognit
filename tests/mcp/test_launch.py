@@ -52,3 +52,26 @@ def test_resume_kickoff_when_resume_true(tmp_path: Path):
     )
     assert any("already exists" in a and "Do NOT regenerate" in a for a in spec.argv)
     assert not any("Generate a comprehension quiz" in a for a in spec.argv)
+
+
+def test_no_debug_file_by_default(tmp_path: Path):
+    spec = build_launch_spec(
+        pr_url="u", pr_number=9, branch="b", port=1, snapshot_path=tmp_path / "s",
+        repo_root=tmp_path, mcp_config_path=tmp_path / "m", settings_path=tmp_path / "set",
+        system_prompt="S", model="m",
+    )
+    assert "--debug-file" not in spec.argv
+
+
+def test_debug_file_injected_before_kickoff(tmp_path: Path):
+    log = tmp_path / "claude-debug.log"
+    spec = build_launch_spec(
+        pr_url="u", pr_number=9, branch="b", port=1, snapshot_path=tmp_path / "s",
+        repo_root=tmp_path, mcp_config_path=tmp_path / "m", settings_path=tmp_path / "set",
+        system_prompt="S", model="m", debug_log=log,
+    )
+    assert "--debug-file" in spec.argv
+    assert str(log) in spec.argv
+    # claude's initial prompt must remain the trailing positional, not the log path.
+    assert spec.argv[-1] != str(log)
+    assert "PR #9" in spec.argv[-1]
