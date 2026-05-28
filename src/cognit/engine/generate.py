@@ -1,15 +1,11 @@
-"""Single-stage quiz generation.
+"""Mermaid label neutralisation for quiz generation.
 
-One agentic call (`llm.draft_quiz`) produces the complete quiz with mermaid
-fully rendered; a submit-validation hook inside the adapter guarantees every
-diagram parses and the four options are visually uniform. This module just
-builds the request, wraps the draft into a `Quiz`, and shuffles mermaid option
-labels (defense-in-depth against the model's correct-answer-position bias).
+`_neutralize_mermaid_labels` is imported by `cognit.mcp.validate` to shuffle
+mermaid option keys and break Claude's correct-answer-position bias.
 """
 
 import random
 
-from cognit.engine.llm import GenerateRequest, LLMClient
 from cognit.engine.models import MermaidQuestion, Question, Quiz
 
 
@@ -41,29 +37,7 @@ def _neutralize_mermaid_labels(quiz: Quiz, rng: random.Random | None = None) -> 
                 prompt=q.prompt,
                 options=new_options,
                 answer=new_answer,
+                explanation=q.explanation,
             )
         )
     return Quiz(version="1", pr_number=quiz.pr_number, questions=new_questions)
-
-
-def generate_quiz(
-    *,
-    pr_title: str,
-    pr_body: str,
-    pr_number: int,
-    pr_url: str,
-    branch: str,
-    llm: LLMClient,
-    model: str = "claude-sonnet-4-6",
-) -> Quiz:
-    req = GenerateRequest(
-        pr_title=pr_title,
-        pr_body=pr_body,
-        pr_number=pr_number,
-        pr_url=pr_url,
-        branch=branch,
-        model=model,
-    )
-    draft = llm.draft_quiz(req)
-    quiz = Quiz(version="1", pr_number=pr_number, questions=draft.questions)
-    return _neutralize_mermaid_labels(quiz)

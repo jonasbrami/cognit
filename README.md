@@ -18,6 +18,7 @@ It's a local CLI that quizzes the **author** of a pull request — not the revie
 ## TL;DR
 
 - `cognit take` — auto-detects the PR for your current branch, generates a quiz from the diff via Claude, opens it in your browser, grades in-session.
+- **Steer it as it runs.** The quiz is hosted by an interactive Claude Code session — tell it in your terminal to skip a question, make one harder, or focus a file, and the browser updates live.
 - **Nothing is posted to GitHub** unless you click **Publish results to PR**. The quiz itself is never published; only a results comment, only if you ask.
 - Like CI checks or pre-commit hooks: opt-in. Failing doesn't gate anything — the value is the "aha" when you realize the code does something you didn't expect.
 - Anthropic-only for now. Requires a Claude Code OAuth session via `claude login` — no API-key path.
@@ -32,7 +33,7 @@ It's a local CLI that quizzes the **author** of a pull request — not the revie
 | [`gh`](https://cli.github.com/) (logged in via `gh auth login`) | required | PR detection, diff fetch, comment publish |
 | `git` | required | working-tree access so the agent can read changed files |
 | A web browser | required | the quiz UI runs at `http://127.0.0.1:<random-port>` |
-| [`claude`](https://docs.claude.com/en/docs/claude-code/overview) CLI (logged in via `claude login`) | required | inference path — all model calls run through it |
+| [`claude`](https://docs.claude.com/en/docs/claude-code/overview) CLI (logged in via `claude login`) | required | hosts the quiz session and runs all model calls |
 | [`@mermaid-js/mermaid-cli`](https://github.com/mermaid-js/mermaid-cli) (`mmdc`) | optional | fastest path for server-side mermaid validation. If absent, `cognit` falls back to a lazily-built Docker parse-only image, then to a Python regex backstop — see [Mermaid validation](#mermaid-validation). |
 
 ### Install
@@ -57,62 +58,128 @@ pipx install cognit
 cognit take
 ```
 
-That's it. The CLI:
+That's it. `cognit take`:
 
 1. Detects the PR for the current branch via `gh`.
-2. Generates a quiz from the diff (or loads it from the local cache at `$TMPDIR/cognit/` if you've already generated one for this PR).
+2. Launches Claude Code as the quiz **host** — a confined `claude` session that reads the diff and renders the quiz (or resumes a cached one from `$TMPDIR/cognit/`).
 3. Opens your browser to the quiz.
-4. Grades everything in-session when you hit Submit — MCQ / mermaid / true-false deterministically; open questions are LLM-graded against a rubric the generator wrote.
-5. Shows you results. Click **Publish results to PR** if you want a record on GitHub; otherwise nothing leaves your laptop.
+4. Lets you **steer it from the terminal** as you go — skip and replace a question, make one harder, focus a file — while the browser updates live.
+5. Grades everything when you hit Submit (or just tell the session "grade me") — MCQ / mermaid / true-false deterministically; open questions are LLM-graded against a rubric the generator wrote.
+6. Shows you results. Click **Publish results to PR** if you want a record on GitHub; otherwise nothing leaves your laptop.
 
 ![Results view: per-question scores, total, and the Discard / Publish-to-PR controls.](docs/img/cognit-results.png)
 
 ## How it works
 
+`cognit take` doesn't make a one-shot generation call — it launches **Claude Code itself as the quiz host**. The CLI `execvpe`s into a *confined* interactive `claude` session wired to a small MCP server (the quiz "render API"). You converse in the terminal to steer the quiz — skip and replace a question, make one harder, focus a file, grade — while the browser displays the quiz, takes your answers, and gates Publish behind a human click.
+
+There are **two Claude invocations**, and they're different mechanisms: the *host session* is the interactive `claude` CLI you talk to; the only SDK call is the short *open-question grader*. Neither surface (terminal or browser) writes to the other directly — they share one authoritative object, **`QuizState`**, which writes through to a JSON snapshot so a refresh or crash loses nothing.
+
+#### The interaction loop
+
+```mermaid
+flowchart TB
+    You([You])
+
+    subgraph Terminal["Terminal (you steer here)"]
+        Host["claude CLI host<br/>Read · Grep · Glob<br/>+ MCP render tools"]
+    end
+
+    subgraph BrowserBox["Browser (you answer here)"]
+        UI["quiz page<br/>polls GET /state every 1s"]
+    end
+
+    State[("QuizState<br/>quiz · answers · results<br/>(write-through JSON snapshot)")]
+    Grader["grade_open<br/>Claude Agent SDK<br/>(open answers only)"]
+
+    You -->|"&quot;skip Q2, make it harder&quot;"| Host
+    You -->|"pick answers · Submit · Publish"| UI
+
+    Host -->|"set_quiz · replace_question"| State
+    State -->|"get_answers (host reads back)"| Host
+
+    UI -->|"POST /answer · /grade · /publish"| State
+    State -->|"GET /state (re-render)"| UI
+
+    State -.->|"one open question"| Grader
+    Grader -.->|"score + feedback"| State
+```
+
+The two surfaces never talk to each other — they only read and write `QuizState`. That's why steering a single question in the terminal doesn't clobber the answers you've already typed in the browser.
+
+#### End to end
+
 ```mermaid
 sequenceDiagram
-  actor User
-  participant CLI as cognit take
-  participant gh as gh CLI
-  participant Agent as Claude (via claude CLI)
-  participant Web as Local browser
+    actor You
+    participant CLI as cognit take
+    participant Host as claude CLI host
+    participant State as QuizState
+    participant Web as Browser
+    participant SDK as grade_open (SDK)
 
-  User->>CLI: cognit take
-  CLI->>gh: pr view (title, body)
-  gh-->>CLI: title, body
-  CLI->>Agent: draft_quiz call (title, body)
-  Agent->>gh: pr_diff tool (strips vendored/lock/binary)
-  gh-->>Agent: filtered diff
-  Agent->>Agent: Read/Grep/Glob on working tree
-  Agent->>Agent: submit_quiz (complete quiz, mermaid fully rendered)
-  Note over Agent: PreToolUse hook validates shape +<br/>mermaid syntax + diagram uniformity
-  loop until diagrams valid (same turn)
-    Agent->>Agent: hook denies → self-correct → resubmit
-  end
-  Agent-->>CLI: QuizDraft (rendered diagrams + correct keys)
-  CLI->>Web: serve quiz (inline JSON)
-  User->>Web: answer + submit
-  Web->>CLI: POST /submit
-  CLI->>Agent: grade_open per open Q
-  Agent-->>CLI: score + feedback
-  CLI-->>Web: Results
-  opt user clicks Publish
-    Web->>CLI: POST /publish
-    CLI->>gh: post results comment
-  end
+    You->>CLI: cognit take --pr ...
+    CLI->>Host: execvpe confined claude<br/>(system prompt + kickoff + MCP tools)
+    Note over Host: confined to Read/Grep/Glob (repo-scoped)<br/>the diff is fetched on demand, never preloaded
+    Host->>Host: changed_files, file_diff(path), Read/Grep/Glob
+    Host->>State: set_quiz(quiz)
+    State-->>Web: GET /state renders the questions
+
+    You->>Host: "skip Q2, make it harder"
+    Host->>State: replace_question(1, ...)
+    State-->>Web: /state re-renders Q2 only
+
+    You->>Web: pick answers
+    Web->>State: POST /answer
+
+    You->>Web: Submit quiz
+    Web->>State: POST /grade
+    Note over State,SDK: mcq / tf / mermaid scored deterministically<br/>open answers go to the SDK grader
+    State->>SDK: grade_open(prompt, rubric, answer)
+    SDK-->>State: score + feedback
+    State-->>Web: /state renders the scorecard
+
+    opt You click Publish
+        Web->>State: POST /publish
+        State-->>You: results comment posted to the PR
+    end
+```
+
+#### What the browser shows
+
+The page is a thin projection of `QuizState`: it polls `GET /state` and renders whichever phase the state is in, re-rendering only when the quiz's structure changes (so steering a single question never clobbers your other answers).
+
+```mermaid
+stateDiagram-v2
+    [*] --> Waiting
+    Waiting --> Answering: host calls set_quiz
+    Answering --> Answering: replace_question<br/>(only the changed question re-renders)
+    Answering --> Results: you Submit in the browser<br/>or say &quot;grade me&quot; in the terminal
+    Results --> Published: you click Publish<br/>(human-gated, posts a PR comment)
+    Results --> Answering: you click Discard
+    Published --> [*]
+
+    note right of Waiting
+        page shows &quot;waiting for the agent&quot;
+    end note
+    note right of Answering
+        host can call set_quiz again at any time
+        to regenerate from scratch
+    end note
 ```
 
 The LLM picks question count and type mix based on diff complexity — typically 2–10 questions across MCQ, mermaid-pick, open, and true/false. To suppress quiz generation on a specific PR, include `quiz: skip` in the PR description.
 
-> 0.1.0 ships as a local CLI only. A GitHub Actions wrapper that would auto-trigger the quiz on PR open is **not on the roadmap** — see [`ROADMAP.md`](ROADMAP.md).
+> cognit runs as a local CLI you invoke on demand — there's no bot or auto-trigger. A GitHub Actions wrapper that would fire the quiz on PR open is **not on the roadmap** (it's a voluntary self-check, not a gate) — see [`ROADMAP.md`](ROADMAP.md).
 
 ### Security model and inference routing
 
-All model calls route through the `claude` binary via the Claude Agent SDK — not the Anthropic Python SDK directly. This is load-bearing for three reasons:
+All model calls run through the `claude` binary — not the Anthropic Python SDK directly. (The host session *is* the interactive `claude` CLI; the only other call, the open-question grader, uses the Claude Agent SDK, which itself drives the same binary.) The confinement is load-bearing for four reasons:
 
 1. **Model access.** The direct Anthropic SDK with an OAuth token is gated to Haiku. Routing through the `claude` binary is what lets Claude Code OAuth and Max subscribers reach Sonnet and Opus.
-2. **Safety boundary.** The generation agent runs under `bypassPermissions`, which auto-runs every *available* tool without prompting. The real gate is the `tools=` parameter, which controls *availability* — not the allow-list (which only suppresses prompts). For generation, the available built-ins are `Read`, `Grep`, `Glob` only: no `Bash`, no `Write`, no `Edit`, so the agent can't shell out or mutate the working tree. (Why not a restricted-git Bash? `tools=` is coarse — you get the whole shell or none — and `git` is an RCE surface via config, external-diff drivers, and aliases. The `file_diff` MCP tool exposes one fixed `subprocess.run` argv instead.)
-3. **Read confinement.** A `PreToolUse` hook resolves every `Read`/`Grep`/`Glob` path against the repo root and denies traversals (`../`, absolute paths), so a prompt-injected PR body can't coax the agent into reading `~/.ssh/id_rsa`.
+2. **Safety boundary.** The host session runs under `bypassPermissions`, which auto-runs every *available* tool without prompting — so the real gate is the `--tools` list, which controls which tools *exist* in the session, not `--permission-mode` (which only controls prompting). The session gets `Read`, `Grep`, `Glob` only: no `Bash`, no `Write`, no `Edit`, so even a fully prompt-injected session can't shell out or mutate the working tree. (Why not a restricted-git Bash? `--tools` is coarse — whole shell or none — and `git` is an RCE surface via config, external-diff drivers, and aliases. The `file_diff` MCP tool exposes one fixed `subprocess.run` argv instead.)
+3. **Read confinement.** A `PreToolUse` hook resolves every `Read`/`Grep`/`Glob` path against the repo root and denies traversals (`../`, absolute paths), so a prompt-injected PR body can't coax the session into reading `~/.ssh/id_rsa`. The MCP render tools (`set_quiz`, `replace_question`, …) only validate and store structured data — they execute nothing.
+4. **Grading and publishing stay out of the model's hands.** Scores are computed by the handler — deterministic for MCQ/mermaid/true-false, a separate strict grader for open answers — so the session supplies no judgments. And posting results to the PR is a **human-gated browser button**, never an agent tool, so the model can't publish on its own even if it's hijacked.
 
 **Cost note.** The `total_cost_usd` logged at the end of a run is an *estimate* from token counts — what a pay-as-you-go API key would bill. Max-plan subscribers are not charged per call.
 
@@ -135,7 +202,7 @@ That's what `cognit` does, for code you're about to merge. The quiz is the diagn
 
 Comprehension-driven development means a change isn't done until the author has been examined on it. The LLM is the examiner; the human stays in the loop where it matters — building the mental model.
 
-*(Future: the author picks which areas of the diff to be examined on and at what depth — not in this release.)*
+*(You can already steer this conversationally — "focus on the retry path", "go deeper on `cache.py`", "make these harder". A structured way to choose areas and depth up front is still future.)*
 
 ## Reference
 
@@ -183,12 +250,14 @@ COGNIT_LOG_LEVEL=DEBUG cognit take
 
 ## Status
 
-**0.1.0 (first release):**
+**What it does today:**
 
-- A single CLI command: `cognit take`. Generates the quiz on first run, opens the browser, grades in-session, opt-in publish.
+- One command, `cognit take`: launches **Claude Code itself as the quiz host** — a confined interactive `claude` session wired to an MCP "render API". Generates the quiz from the diff on first run (or resumes a cached one), opens the browser, grades in-session, opt-in publish.
+- **Conversational steering.** Talk to the session in your terminal — skip-and-replace a question, make one harder, focus a file, grade — and the browser updates live. The browser displays the quiz, takes your answers, and gates Publish behind a human click.
 - 4 question types (MCQ, mermaid-pick with auto-neutralized A/B/C/D labels, open, true/false).
-- Anthropic adapter via tool use (guaranteed-schema output), OAuth via the `claude` CLI.
-- Local FastAPI server with embedded HTML/JS/CSS + a vendored `mermaid.js` UMD bundle (no CDN at runtime).
+- **Confined by construction.** The host session has only `Read`/`Grep`/`Glob` (repo-scoped by a fail-closed read hook), strict MCP, and isolated settings, so a prompt-injected diff can't read or write outside the repo. Grading is handler-owned (the model supplies no scores); Publish is the only outward-facing action.
+- Inference routes through the `claude` CLI (the host session) plus the Claude Agent SDK (the open-question grader) — OAuth via `claude login`, no API-key path.
+- Local FastAPI host with embedded HTML/JS/CSS + a vendored `mermaid.js` UMD bundle (no CDN at runtime); session state writes through to a JSON snapshot, so a refresh or crash loses nothing.
 
 **Future** (see [`ROADMAP.md`](ROADMAP.md)):
 
