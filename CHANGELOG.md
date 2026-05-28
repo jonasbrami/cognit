@@ -4,6 +4,24 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-28
+
+### Changed
+- **`cognit take` now runs the quiz interactively on Claude Code itself.** Instead of a one-shot generation call, the CLI `execvpe`s into a *confined* interactive `claude` session wired to an in-process MCP server (the quiz "render API"). You converse in the terminal to steer the quiz — *"skip Q2, make it harder"*, *"focus on the migration"*, *"grade me"* — while the browser polls the shared `QuizState` and re-renders only the questions that change (so steering one question never clobbers answers you've already typed). The two surfaces never talk to each other directly; they only read and write `QuizState`, which writes through to a JSON snapshot so a refresh or crash loses nothing.
+- **The browser is now a thin projection of `QuizState`.** `GET /state` is polled every 1s; the page renders one of `waiting / answering / results / published`. Browser Submit and the agent's `grade` MCP tool converge on the same `grade_state` handler, so grading is identical whether you click Submit in the page or say "grade me" in the terminal.
+- **Inference split into two distinct mechanisms.** The host session *is* the interactive `claude` CLI binary (so Claude Code OAuth/Max subscribers reach Sonnet and Opus); the only other call — the open-question grader — uses the Claude Agent SDK, which itself drives the same binary.
+
+### Added
+- **Read-confinement `PreToolUse` hook (`cognit.mcp.confine`).** Resolves every `Read`/`Grep`/`Glob` path against the repo root and denies traversals (`../`, absolute paths) — fail-closed. A prompt-injected PR body cannot coax the session into reading `~/.ssh/id_rsa`.
+- **Coarse tool gate via the host CLI.** The session is launched with `--tools "Read Grep Glob" --strict-mcp-config --setting-sources user --permission-mode bypassPermissions`. `bypassPermissions` only suppresses prompts; the real safety boundary is `--tools`, which controls which tools *exist* — no `Bash`, no `Write`, no `Edit`. The `file_diff` MCP tool exposes one fixed `subprocess.run` argv instead of a restricted git, since `git` is an RCE surface via config, external-diff drivers, and aliases.
+- **Handler-owned grading and human-gated publish.** MCQ / mermaid / true-false scored deterministically; open answers go to the strict SDK grader. Posting results to the PR is a browser button only, never an agent tool — so the model cannot publish on its own even if it's hijacked.
+- **Debug logging.** `COGNIT_LOG_LEVEL=DEBUG` now also captures the host session's full transcript via `claude --debug-file <path>` to `$TMPDIR/cognit/<digest>-claude-debug.log`.
+- **README rewrite.** New mermaid diagrams (interaction loop, end-to-end sequence, render-state machine), HD screenshots (DPR 2), and a real screen-recorded demo gif of `cognit take` in action.
+
+### Fixed
+- **`/publish` now surfaces failures.** Wraps the `gh` call in try/except → returns 502 with the `gh` stderr inlined, instead of a bare 500. The browser alerts with the actual reason.
+- **Generation prompt documents the per-type schema asymmetry** (`mcq.answer` = full option text, `mermaid.answer` = key, `tf.answer` = boolean, `open` has no answer/explanation) and tells the agent to trust `changed_files` instead of Glob-ing the tree (which would flood with `.venv`/`node_modules`).
+
 ## [0.2.1] — 2026-05-25
 
 ### Fixed
