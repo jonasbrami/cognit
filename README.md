@@ -78,21 +78,34 @@ There are **two Claude invocations**, and they're different mechanisms: the *hos
 #### The interaction loop
 
 ```mermaid
-flowchart LR
+flowchart TB
     You([You])
-    Host["claude CLI host session<br/>(system prompt + MCP tools)"]
-    State[("QuizState<br/>quiz · answers · results")]
-    UI["Browser quiz page<br/>(polls /state)"]
-    Grader["grade_open<br/>(claude_agent_sdk)"]
 
-    You -->|"steer in the terminal"| Host
-    You -->|"answer · Submit · Publish"| UI
-    Host <-->|"set_quiz · replace_question<br/>get_answers · grade"| State
+    subgraph Terminal["Terminal (you steer here)"]
+        Host["claude CLI host<br/>Read · Grep · Glob<br/>+ MCP render tools"]
+    end
+
+    subgraph BrowserBox["Browser (you answer here)"]
+        UI["quiz page<br/>polls GET /state every 1s"]
+    end
+
+    State[("QuizState<br/>quiz · answers · results<br/>(write-through JSON snapshot)")]
+    Grader["grade_open<br/>Claude Agent SDK<br/>(open answers only)"]
+
+    You -->|"&quot;skip Q2, make it harder&quot;"| Host
+    You -->|"pick answers · Submit · Publish"| UI
+
+    Host -->|"set_quiz · replace_question"| State
+    State -->|"get_answers (host reads back)"| Host
+
     UI -->|"POST /answer · /grade · /publish"| State
-    State -->|"GET /state (1s poll)"| UI
-    State -.->|"open Q only"| Grader
+    State -->|"GET /state (re-render)"| UI
+
+    State -.->|"one open question"| Grader
     Grader -.->|"score + feedback"| State
 ```
+
+The two surfaces never talk to each other — they only read and write `QuizState`. That's why steering a single question in the terminal doesn't clobber the answers you've already typed in the browser.
 
 #### End to end
 
@@ -138,13 +151,21 @@ The page is a thin projection of `QuizState`: it polls `GET /state` and renders 
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Waiting: no quiz yet
-    Waiting --> Answering: set_quiz lands in /state
-    Answering --> Answering: replace_question<br/>(re-render on change only)
-    Answering --> Results: results in /state<br/>(your Submit, or "grade me" in the terminal)
-    Results --> Published: POST /publish (human-gated)
-    Results --> Answering: Discard, or quiz regenerated
-    Published --> Answering: agent regenerates the quiz
+    [*] --> Waiting
+    Waiting --> Answering: host calls set_quiz
+    Answering --> Answering: replace_question<br/>(only the changed question re-renders)
+    Answering --> Results: you Submit in the browser<br/>or say &quot;grade me&quot; in the terminal
+    Results --> Published: you click Publish<br/>(human-gated, posts a PR comment)
+    Results --> Answering: you click Discard
+    Published --> [*]
+
+    note right of Waiting
+        page shows &quot;waiting for the agent&quot;
+    end note
+    note right of Answering
+        host can call set_quiz again at any time
+        to regenerate from scratch
+    end note
 ```
 
 The LLM picks question count and type mix based on diff complexity — typically 2–10 questions across MCQ, mermaid-pick, open, and true/false. To suppress quiz generation on a specific PR, include `quiz: skip` in the PR description.
