@@ -370,16 +370,22 @@ function renderAnchor(q) {
   if (!a || !a.path) return null;
   const range = a.start_line === a.end_line ? `${a.start_line}` : `${a.start_line}–${a.end_line}`;
   const body = el("div", { class: "codepanel__body" });
+  // Default to plain text; upgrade to a GitHub link only once we've confirmed the path
+  // is actually one of the PR's changed files — so a hallucinated/non-diff anchor path
+  // never produces a broken (404) link. The link targets the file on the PR's branch.
+  const fileEl = el("span", { class: "codepanel__file", text: a.path });
   const href = githubFileUrl(a.path, a.start_line, a.end_line);
-  // The file name links to the file on the PR's branch in GitHub; stopPropagation so
-  // following the link doesn't also toggle the panel. Plain text when there's no link.
-  const fileEl = href
-    ? el("a", {
+  if (href) {
+    ensureChangedFiles().then((files) => {
+      if (!files.some((f) => fileMatchesAnchor(f, a.path))) return;  // not in the diff → no link
+      const link = el("a", {
         class: "codepanel__file", href, target: "_blank", rel: "noopener",
         title: `Open ${a.path} on GitHub`, text: a.path,
-        onclick: (e) => e.stopPropagation(),
-      })
-    : el("span", { class: "codepanel__file", text: a.path });
+        onclick: (e) => e.stopPropagation(),  // follow the link without toggling the panel
+      });
+      fileEl.replaceWith(link);
+    });
+  }
   const details = el("details", { class: "codepanel" }, [  // collapsible, closed by default
     el("summary", { class: "codepanel__summary" }, [
       el("span", { class: "codepanel__icon", "aria-hidden": "true", text: "▸" }),
