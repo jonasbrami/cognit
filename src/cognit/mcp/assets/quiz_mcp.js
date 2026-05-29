@@ -284,9 +284,13 @@ function diffLineNode(line, lineNo, anchor) {
   return el("div", { class: cls, text: line === "" ? " " : line });
 }
 
-// Render the diff, scoped to the hunk(s) the anchor points at (new-side line range).
-// Falls back to all hunks if the anchor overlaps none (e.g. it points at context the
-// diff doesn't touch). Anchored new-side lines are highlighted. textContent only.
+const ANCHOR_CONTEXT = 3;  // lines of context shown around the anchored range
+
+// Render the diff, scoped to the hunk(s) the anchor points at, then clipped to a tight
+// window around the anchored lines (± a few context lines) so a big hunk doesn't dump
+// 40+ lines under every question. The anchored lines are highlighted; trimmed regions
+// are marked with an ellipsis. Falls back to the whole hunk(s) when there's no anchor
+// window to clip to. textContent only.
 function renderDiff(text, anchor) {
   const hunks = parseDiff(text);
   let shown = hunks;
@@ -301,27 +305,36 @@ function renderDiff(text, anchor) {
     String(text).split("\n").forEach((line) => pre.appendChild(diffLineNode(line, null, null)));
     return pre;
   }
+  const ellipsis = () => el("div", { class: "diff-line ellipsis", text: "⋯" });
+  const win = anchor ? [anchor.start_line - ANCHOR_CONTEXT, anchor.end_line + ANCHOR_CONTEXT] : null;
   shown.forEach((h) => {
+    // Tag each body line (after the @@ header) with its new-side position. Removed lines
+    // carry no new-side number but sit at the current position.
     let newLine = h.startNew;
-    h.lines.forEach((line) => {
-      if (line.startsWith("@@")) {
-        pre.appendChild(diffLineNode(line, null, anchor));
-      } else if (line.startsWith("-")) {
-        pre.appendChild(diffLineNode(line, null, anchor));  // removed: no new-side number
-      } else {
-        pre.appendChild(diffLineNode(line, newLine, anchor));  // context / added
-        newLine++;
-      }
+    const body = h.lines.slice(1).map((line) => {
+      if (line.startsWith("-")) return { line, num: null, pos: newLine };
+      const num = newLine++;
+      return { line, num, pos: num };
     });
+    const keep = win ? body.map((e, i) => (e.pos >= win[0] && e.pos <= win[1] ? i : -1)).filter((i) => i >= 0) : body.map((_, i) => i);
+    pre.appendChild(diffLineNode(h.lines[0], null, anchor));  // @@ header, always
+    if (!keep.length) {  // anchor window misses every line — show the whole hunk
+      body.forEach((e) => pre.appendChild(diffLineNode(e.line, e.num, anchor)));
+      return;
+    }
+    const lo = keep[0], hi = keep[keep.length - 1];
+    if (lo > 0) pre.appendChild(ellipsis());
+    for (let i = lo; i <= hi; i++) pre.appendChild(diffLineNode(body[i].line, body[i].num, anchor));
+    if (hi < body.length - 1) pre.appendChild(ellipsis());
   });
   return pre;
 }
 
 async function loadHunk(path, anchor, body) {
-  body.textContent = "Loading…";
   let text;
   try {
     if (!(path in _diffCache)) {
+      body.textContent = "Loading…";  // only on a cache miss → no flash on re-render
       _diffCache[path] = await (await fetch("/diff?path=" + encodeURIComponent(path))).text();
     }
     text = _diffCache[path];
@@ -339,24 +352,22 @@ async function loadHunk(path, anchor, body) {
   body.appendChild(renderDiff(text, anchor));
 }
 
+// The anchored hunk renders inline with the question (always visible — not behind a
+// disclosure), with a file:line header. The hunk is fetched on render (cached per path).
 function renderAnchor(q) {
   const a = q.anchor;
   if (!a || !a.path) return null;
   const range = a.start_line === a.end_line ? `${a.start_line}` : `${a.start_line}–${a.end_line}`;
   const body = el("div", { class: "codepanel__body" });
-  const details = el("details", { class: "codepanel" }, [
-    el("summary", { class: "codepanel__summary" }, [
-      el("span", { class: "codepanel__icon", "aria-hidden": "true", text: "▸" }),
+  const panel = el("div", { class: "codepanel codepanel--inline" }, [
+    el("div", { class: "codepanel__summary" }, [
       el("span", { class: "codepanel__file", text: a.path }),
       el("span", { class: "codepanel__lines", text: `:${range}` }),
     ]),
     body,
   ]);
-  let loaded = false;
-  details.addEventListener("toggle", () => {
-    if (details.open && !loaded) { loaded = true; loadHunk(a.path, a, body); }
-  });
-  return details;
+  loadHunk(a.path, a, body);  // fetch + render immediately; inline, no click needed
+  return panel;
 }
 
 const DETERMINISTIC = new Set(["mcq", "tf", "mermaid"]);
