@@ -82,6 +82,7 @@ function quizSig(q) {
   return JSON.stringify(q.questions.map((x) => [
     x.id, x.type, x.prompt,
     x.type === "mcq" ? x.options : x.type === "mermaid" ? Object.keys(x.options) : null,
+    x.anchor ? [x.anchor.path, x.anchor.start_line, x.anchor.end_line] : null,
   ]));
 }
 
@@ -238,6 +239,118 @@ function renderTF(q) {
   return [wrap];
 }
 
+// ── inline code context (anchors) ───────────────────────────────
+// A collapsible panel under a question that shows the anchored diff hunk. The hunk
+// is fetched from GET /diff on first expand and rendered DOM-built (textContent only,
+// never innerHTML) so agent/repo-supplied diff text can't inject markup.
+const _diffCache = {};  // path -> diff text (one fetch per file per page)
+
+// Split a unified-diff file section into the lines before the first hunk (file header)
+// and the hunks. Each hunk carries its new-side line span so we can scope to an anchor.
+function parseDiff(text) {
+  const hunks = [];
+  let cur = null;
+  for (const line of String(text).split("\n")) {
+    if (line.startsWith("@@")) {
+      const m = /@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/.exec(line);
+      const startNew = m ? parseInt(m[1], 10) : 1;
+      const countNew = m && m[2] != null ? parseInt(m[2], 10) : 1;
+      cur = { startNew, endNew: startNew + Math.max(countNew, 1) - 1, lines: [line] };
+      hunks.push(cur);
+    } else if (cur) {
+      cur.lines.push(line);
+    }
+  }
+  return hunks;
+}
+
+function diffLineNode(line, lineNo, anchor) {
+  let cls = "diff-line";
+  if (line.startsWith("@@")) cls += " hunk";
+  else if (/^(diff |index |\+\+\+|---)/.test(line)) cls += " fmeta";
+  else if (line.startsWith("+")) cls += " add";
+  else if (line.startsWith("-")) cls += " del";
+  if (anchor && lineNo != null && lineNo >= anchor.start_line && lineNo <= anchor.end_line) {
+    cls += " anchor-hit";
+  }
+  return el("div", { class: cls, text: line === "" ? " " : line });
+}
+
+// Render the diff, scoped to the hunk(s) the anchor points at (new-side line range).
+// Falls back to all hunks if the anchor overlaps none (e.g. it points at context the
+// diff doesn't touch). Anchored new-side lines are highlighted. textContent only.
+function renderDiff(text, anchor) {
+  const hunks = parseDiff(text);
+  let shown = hunks;
+  if (anchor && hunks.length) {
+    const overlap = hunks.filter(
+      (h) => h.startNew <= anchor.end_line && h.endNew >= anchor.start_line
+    );
+    if (overlap.length) shown = overlap;
+  }
+  const pre = el("pre", { class: "diff" });
+  if (!shown.length) {  // no @@ hunks (binary/empty section) — show raw, no numbering
+    String(text).split("\n").forEach((line) => pre.appendChild(diffLineNode(line, null, null)));
+    return pre;
+  }
+  shown.forEach((h) => {
+    let newLine = h.startNew;
+    h.lines.forEach((line) => {
+      if (line.startsWith("@@")) {
+        pre.appendChild(diffLineNode(line, null, anchor));
+      } else if (line.startsWith("-")) {
+        pre.appendChild(diffLineNode(line, null, anchor));  // removed: no new-side number
+      } else {
+        pre.appendChild(diffLineNode(line, newLine, anchor));  // context / added
+        newLine++;
+      }
+    });
+  });
+  return pre;
+}
+
+async function loadHunk(path, anchor, body) {
+  body.textContent = "Loading…";
+  let text;
+  try {
+    if (!(path in _diffCache)) {
+      _diffCache[path] = await (await fetch("/diff?path=" + encodeURIComponent(path))).text();
+    }
+    text = _diffCache[path];
+  } catch (e) {
+    console.warn("diff fetch failed for", path, e);
+    body.textContent = "Could not load the diff for this file.";
+    return;
+  }
+  body.textContent = "";
+  if (/^No changed file matches/.test(text)) {
+    // path isn't in the PR diff (e.g. renamed, or a filtered binary/minified file)
+    body.appendChild(el("div", { class: "codepanel__note", text: "Not part of the PR diff." }));
+    return;
+  }
+  body.appendChild(renderDiff(text, anchor));
+}
+
+function renderAnchor(q) {
+  const a = q.anchor;
+  if (!a || !a.path) return null;
+  const range = a.start_line === a.end_line ? `${a.start_line}` : `${a.start_line}–${a.end_line}`;
+  const body = el("div", { class: "codepanel__body" });
+  const details = el("details", { class: "codepanel" }, [
+    el("summary", { class: "codepanel__summary" }, [
+      el("span", { class: "codepanel__icon", "aria-hidden": "true", text: "▸" }),
+      el("span", { class: "codepanel__file", text: a.path }),
+      el("span", { class: "codepanel__lines", text: `:${range}` }),
+    ]),
+    body,
+  ]);
+  let loaded = false;
+  details.addEventListener("toggle", () => {
+    if (details.open && !loaded) { loaded = true; loadHunk(a.path, a, body); }
+  });
+  return details;
+}
+
 function renderQuestion(q, i) {
   const inputsByType = { mcq: renderMCQ, mermaid: renderMermaid, open: renderOpen, tf: renderTF };
   const inputs = inputsByType[q.type](q);
@@ -248,6 +361,7 @@ function renderQuestion(q, i) {
     ]),
     el("div", { class: "file__body" }, [
       el("p", { class: "prompt" }, renderPrompt(q.prompt)),
+      renderAnchor(q),  // null when no anchor — el() skips null children
       ...inputs,
     ]),
   ]);
@@ -357,7 +471,7 @@ function renderSummary(res) {
 function renderResultCard(q, r, i) {
   const cls = scoreClass(r.score);
   const verdict = cls === "ok" ? "correct" : cls === "bad" ? "incorrect" : "partial";
-  const body = [el("p", { class: "prompt" }, renderPrompt(q.prompt))];
+  const body = [el("p", { class: "prompt" }, renderPrompt(q.prompt)), renderAnchor(q)];
   const userVal = answers[q.id];
   if (q.type === "mcq" || q.type === "tf") {
     const correctAnswer = q.type === "tf" ? String(q.answer) : q.answer;

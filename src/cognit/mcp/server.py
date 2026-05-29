@@ -116,9 +116,8 @@ class _DiffProvider:
 # ── process wiring ───────────────────────────────────────────────────────────
 
 
-def _build_mcp(state: QuizState, llm: LLMClient, pr_url: str) -> FastMCP:
+def _build_mcp(state: QuizState, llm: LLMClient, diffs: _DiffProvider) -> FastMCP:
     mcp = FastMCP("cognit")
-    diffs = _DiffProvider(pr_url)
 
     @mcp.tool()
     async def set_quiz(quiz: dict[str, Any]) -> dict[str, Any]:
@@ -161,11 +160,14 @@ def _build_mcp(state: QuizState, llm: LLMClient, pr_url: str) -> FastMCP:
     return mcp
 
 
-def _start_web(state: QuizState, *, llm: LLMClient, pr_url: str, port: int) -> None:
+def _start_web(
+    state: QuizState, *, llm: LLMClient, pr_url: str, port: int, diffs: _DiffProvider
+) -> None:
     app = build_web_app(
         state,
         post_comment=lambda body: gh_post_comment(pr_url, body),
         grade=lambda: grade_state(state, llm=llm),
+        diff_section=lambda path: do_file_diff(path, diffs.sections()),
         pr_url=pr_url,
     )
     url = f"http://127.0.0.1:{port}"
@@ -222,10 +224,11 @@ def main() -> None:
 
     print(f"cognit quiz: http://127.0.0.1:{port}", file=sys.stderr)
     llm: LLMClient = ClaudeAgentLLM()
+    diffs = _DiffProvider(pr_url)  # one fetch/cache shared by the MCP tools and the web /diff
     threading.Thread(
         target=_start_web,
         args=(state,),
-        kwargs={"llm": llm, "pr_url": pr_url, "port": port},
+        kwargs={"llm": llm, "pr_url": pr_url, "port": port, "diffs": diffs},
         daemon=True,
     ).start()
-    _build_mcp(state, llm, pr_url).run()
+    _build_mcp(state, llm, diffs).run()

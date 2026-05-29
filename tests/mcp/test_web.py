@@ -174,6 +174,41 @@ def test_publish_surfaces_post_failure_as_502(tmp_path: Path) -> None:
         t.join(timeout=2)
 
 
+def test_diff_endpoint_returns_section(tmp_path: Path) -> None:
+    state = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
+    state.set_quiz(
+        Quiz(
+            pr_number=7,
+            questions=[
+                MCQQuestion(id="q1", prompt="p", options=["A", "B"], answer="A", explanation="x")
+            ],
+        )
+    )
+    sections = {"src/a.py": "diff --git a/src/a.py b/src/a.py\n@@ -1 +1 @@\n-x\n+y\n"}
+    app = build_web_app(
+        state,
+        post_comment=lambda b: "http://c/1",
+        diff_section=lambda path: sections.get(path, f"No changed file matches {path!r}."),
+    )
+    port = _free_port()
+    server, t = _serve(app, port)
+    try:
+        r = httpx.get(f"http://127.0.0.1:{port}/diff", params={"path": "src/a.py"})
+        assert r.status_code == 200
+        assert "+y" in r.text
+        miss = httpx.get(f"http://127.0.0.1:{port}/diff", params={"path": "nope.py"})
+        assert miss.status_code == 200 and "No changed file matches" in miss.text
+    finally:
+        server.should_exit = True
+        t.join(timeout=2)
+
+
+def test_diff_endpoint_503_when_unavailable(client) -> None:
+    # the default fixture app wires no `diff_section`
+    c, _state, _ = client
+    assert c.get("/diff", params={"path": "x.py"}).status_code == 503
+
+
 def test_publish_before_grading_409(tmp_path: Path) -> None:
     state = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
     state.set_quiz(

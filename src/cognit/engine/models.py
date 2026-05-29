@@ -2,6 +2,24 @@ from typing import Annotated, Literal, Union
 from pydantic import BaseModel, Field, model_validator
 
 
+class Anchor(BaseModel):
+    """Where in the diff a question is probing, so the browser can show the hunk inline.
+
+    Optional on every question (defaults to None) — old cached quizzes load unchanged.
+    A hint, not an assertion the lines are part of the diff: a question may anchor
+    surrounding unchanged context the reader needs."""
+
+    path: str  # repo-relative path, from changed_files
+    start_line: int = Field(ge=1)
+    end_line: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "Anchor":
+        if self.end_line < self.start_line:
+            raise ValueError(f"end_line {self.end_line} < start_line {self.start_line}")
+        return self
+
+
 class MCQQuestion(BaseModel):
     type: Literal["mcq"] = "mcq"
     id: str
@@ -9,6 +27,7 @@ class MCQQuestion(BaseModel):
     options: list[str]
     answer: str  # must equal one of options
     explanation: str = ""  # shown to the reader after they answer (the "aha")
+    anchor: Anchor | None = None  # diff hunk to show inline (optional)
 
     @model_validator(mode="after")
     def _answer_in_options(self) -> "MCQQuestion":
@@ -24,6 +43,7 @@ class MermaidQuestion(BaseModel):
     options: dict[str, str]  # label -> mermaid source
     answer: str  # must be a key of options
     explanation: str = ""  # shown to the reader after they answer (the "aha")
+    anchor: Anchor | None = None  # diff hunk to show inline (optional)
 
     @model_validator(mode="after")
     def _answer_is_option_key(self) -> "MermaidQuestion":
@@ -37,6 +57,7 @@ class OpenQuestion(BaseModel):
     id: str
     prompt: str
     rubric: str
+    anchor: Anchor | None = None  # diff hunk to show inline (optional)
 
 
 class TrueFalseQuestion(BaseModel):
@@ -45,6 +66,7 @@ class TrueFalseQuestion(BaseModel):
     prompt: str
     answer: bool
     explanation: str = ""  # shown to the reader after they answer (the "aha")
+    anchor: Anchor | None = None  # diff hunk to show inline (optional)
 
 
 Question = Annotated[
