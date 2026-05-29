@@ -866,6 +866,8 @@ textarea.open:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 
 .diff-line.del  { background: var(--red-bg); }
 .diff-line.hunk { color: var(--blue); background: var(--blue-bg); }
 .diff-line.fmeta { color: var(--fg-faint); }
+.diff-line.anchor-hit { box-shadow: inset 3px 0 0 var(--blue); }
+.codepanel__note { padding: 10px 12px; font-size: 12px; color: var(--fg-mute); background: var(--bg-canvas); border-radius: 0 0 6px 6px; }
 
 @media (prefers-reduced-motion: reduce) {
   .codepanel__icon { transition: none; }
