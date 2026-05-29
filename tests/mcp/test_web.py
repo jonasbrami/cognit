@@ -209,6 +209,38 @@ def test_diff_endpoint_503_when_unavailable(client) -> None:
     assert c.get("/diff", params={"path": "x.py"}).status_code == 503
 
 
+def test_changed_files_endpoint_lists_files(tmp_path: Path) -> None:
+    state = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
+    state.set_quiz(
+        Quiz(
+            pr_number=7,
+            questions=[
+                MCQQuestion(id="q1", prompt="p", options=["A", "B"], answer="A", explanation="x")
+            ],
+        )
+    )
+    app = build_web_app(
+        state,
+        post_comment=lambda b: "http://c/1",
+        changed_files=lambda: ["src/a.py", "src/b.py"],
+    )
+    port = _free_port()
+    server, t = _serve(app, port)
+    try:
+        r = httpx.get(f"http://127.0.0.1:{port}/changed-files")
+        assert r.status_code == 200
+        assert r.json()["files"] == ["src/a.py", "src/b.py"]
+    finally:
+        server.should_exit = True
+        t.join(timeout=2)
+
+
+def test_changed_files_503_when_unavailable(client) -> None:
+    # the default fixture app wires no `changed_files`
+    c, _state, _ = client
+    assert c.get("/changed-files").status_code == 503
+
+
 def test_publish_before_grading_409(tmp_path: Path) -> None:
     state = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
     state.set_quiz(

@@ -39,6 +39,7 @@ def build_web_app(
     post_comment: Callable[[str], str],
     grade: Callable[[], Results] | None = None,
     diff_section: Callable[[str], str] | None = None,
+    changed_files: Callable[[], list[str]] | None = None,
     pr_url: str = "",
 ) -> FastAPI:
     """Browser projection over `state`.
@@ -47,8 +48,10 @@ def build_web_app(
     button. It runs the same handler-owned grading the agent's `grade` tool uses and
     must store the result in `state`; we return the Results to the page. `diff_section`
     (when provided) returns the unified-diff section for one changed file — GET /diff
-    serves it so the browser can show a question's anchored hunk inline. `pr_url` feeds
-    the page chrome (the "on GitHub" links).
+    serves it so the browser can show a question's anchored hunk inline. `changed_files`
+    (when provided) lists the PR's changed-file paths — GET /changed-files serves it so
+    the browser can render the diff coverage map. `pr_url` feeds the page chrome (the
+    "on GitHub" links).
     """
     app = FastAPI()
     app.mount("/static", StaticFiles(directory=str(_ASSETS_DIR)), name="static")
@@ -81,6 +84,12 @@ def build_web_app(
         if diff_section is None:
             return PlainTextResponse("diff not available", status_code=503)
         return PlainTextResponse(diff_section(path))
+
+    @app.get("/changed-files")
+    def get_changed_files() -> JSONResponse:
+        if changed_files is None:
+            return JSONResponse({"error": "diff not available"}, status_code=503)
+        return JSONResponse({"files": changed_files()})
 
     @app.post("/grade")
     async def do_grade() -> JSONResponse:
