@@ -45,6 +45,17 @@ let view = null;            // waiting | answering | results | published
 // client-side answer to reveal.)
 let examMode = localStorage.getItem("cognit.examMode") === "1";
 
+// GitHub deep-linking for anchors: repo blob base derived from the PR url, plus the
+// PR's head branch (both injected into <body> by the server). Empty in tests/demos.
+const PR_URL = document.body.dataset.prUrl || "";
+const BRANCH = document.body.dataset.branch || "";
+const REPO_URL = PR_URL.replace(/\/pull\/\d+.*$/, "");  // → https://github.com/owner/repo
+function githubFileUrl(path, startLine, endLine) {
+  if (!REPO_URL || !BRANCH) return null;
+  const frag = startLine === endLine ? `#L${startLine}` : `#L${startLine}-L${endLine}`;
+  return `${REPO_URL}/blob/${BRANCH}/${path}${frag}`;
+}
+
 // ── small DOM helper ────────────────────────────────────────────
 function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
@@ -359,15 +370,29 @@ function renderAnchor(q) {
   if (!a || !a.path) return null;
   const range = a.start_line === a.end_line ? `${a.start_line}` : `${a.start_line}–${a.end_line}`;
   const body = el("div", { class: "codepanel__body" });
-  const panel = el("div", { class: "codepanel codepanel--inline" }, [
-    el("div", { class: "codepanel__summary" }, [
-      el("span", { class: "codepanel__file", text: a.path }),
+  const href = githubFileUrl(a.path, a.start_line, a.end_line);
+  // The file name links to the file on the PR's branch in GitHub; stopPropagation so
+  // following the link doesn't also toggle the panel. Plain text when there's no link.
+  const fileEl = href
+    ? el("a", {
+        class: "codepanel__file", href, target: "_blank", rel: "noopener",
+        title: `Open ${a.path} on GitHub`, text: a.path,
+        onclick: (e) => e.stopPropagation(),
+      })
+    : el("span", { class: "codepanel__file", text: a.path });
+  const details = el("details", { class: "codepanel" }, [  // collapsible, closed by default
+    el("summary", { class: "codepanel__summary" }, [
+      el("span", { class: "codepanel__icon", "aria-hidden": "true", text: "▸" }),
+      fileEl,
       el("span", { class: "codepanel__lines", text: `:${range}` }),
     ]),
     body,
   ]);
-  loadHunk(a.path, a, body);  // fetch + render immediately; inline, no click needed
-  return panel;
+  let loaded = false;
+  details.addEventListener("toggle", () => {
+    if (details.open && !loaded) { loaded = true; loadHunk(a.path, a, body); }  // fetch on first expand
+  });
+  return details;
 }
 
 const DETERMINISTIC = new Set(["mcq", "tf", "mermaid"]);

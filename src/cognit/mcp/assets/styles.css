@@ -819,6 +819,7 @@ textarea.open:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 
 @media (prefers-reduced-motion: reduce) {
   .gen__spinner { animation: none; }
   .term::after { animation: none; }
+  .codepanel__icon { transition: none; }
 }
 
 /* inline code context (anchors) ──────────────────────────────────── */
@@ -833,11 +834,18 @@ textarea.open:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 
   align-items: baseline;
   gap: 4px;
   padding: 8px 12px;
+  cursor: pointer;
   font-family: var(--mono);
   font-size: 12px;
   color: var(--fg-mute);
+  list-style: none;
+  user-select: none;
 }
-.codepanel__file { color: var(--fg); font-weight: 500; }
+.codepanel__summary::-webkit-details-marker { display: none; }
+.codepanel__icon { color: var(--fg-faint); transition: transform 0.12s ease; display: inline-block; }
+.codepanel[open] > .codepanel__summary .codepanel__icon { transform: rotate(90deg); }
+.codepanel__file { color: var(--fg); font-weight: 500; text-decoration: none; }
+a.codepanel__file:hover { color: var(--blue); text-decoration: underline; }
 .codepanel__lines { color: var(--fg-faint); }
 .codepanel__body { border-top: 1px solid var(--border-mute); }
 .codepanel pre.diff {

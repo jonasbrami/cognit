@@ -29,6 +29,7 @@ def test_launch_spec_has_confined_flags(tmp_path: Path):
     assert spec.env["COGNIT_HTTP_PORT"] == "8123"
     assert spec.env["COGNIT_SNAPSHOT_PATH"] == str(tmp_path / "s.json")
     assert spec.env["COGNIT_REPO_ROOT"] == str(tmp_path)
+    assert spec.env["COGNIT_BRANCH"] == "feat/x"
 
 
 def test_mcp_config_points_at_cognit_module(tmp_path: Path):
