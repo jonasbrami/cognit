@@ -20,5 +20,17 @@ def grade_state(state: QuizState, *, llm: LLMClient) -> Results:
         entries=[AnswerEntry(question_id=qid, value=val) for qid, val in answers_map.items()],
     )
     results = grade(quiz, answers, llm=llm)
+    # Attach the reader's self-reported confidence (1–5) to each result so the agent can
+    # see confidence vs. correctness — e.g. to follow up on confident-but-wrong questions.
+    confidences = dict(state.confidences)
+    if confidences:
+        results = results.model_copy(
+            update={
+                "per_question": [
+                    r.model_copy(update={"confidence": confidences.get(r.question_id)})
+                    for r in results.per_question
+                ]
+            }
+        )
     state.set_results(results)
     return results

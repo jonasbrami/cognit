@@ -46,6 +46,39 @@ def test_replace_question_drops_old_answer(tmp_path: Path) -> None:
     assert s.quiz is not None and s.quiz.questions[0].id == "q1b"  # new question in place
 
 
+def test_record_confidence(tmp_path: Path) -> None:
+    s = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
+    s.set_quiz(_quiz())
+    s.record_confidence("q1", 4)
+    assert s.confidences == {"q1": 4}
+
+
+def test_confidences_persisted_and_reloaded(tmp_path: Path) -> None:
+    snap = tmp_path / "s.json"
+    s = QuizState(pr_number=7, snapshot_path=snap)
+    s.set_quiz(_quiz())
+    s.record_confidence("q1", 3)
+    s2 = QuizState(pr_number=7, snapshot_path=snap)
+    assert s2.confidences == {"q1": 3}
+    assert s2.snapshot()["confidences"] == {"q1": 3}
+
+
+def test_set_quiz_resets_confidences(tmp_path: Path) -> None:
+    s = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
+    s.set_quiz(_quiz())
+    s.record_confidence("q1", 5)
+    s.set_quiz(_quiz())
+    assert s.confidences == {}
+
+
+def test_replace_question_drops_confidence(tmp_path: Path) -> None:
+    s = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
+    s.set_quiz(_quiz())
+    s.record_confidence("q1", 5)
+    s.replace_question(0, MCQQuestion(id="q1b", prompt="p2", options=["X", "Y"], answer="Y"))
+    assert "q1" not in s.confidences
+
+
 def test_corrupt_snapshot_loads_as_empty(tmp_path: Path) -> None:
     snap = tmp_path / "s.json"
     snap.write_text("{not valid json")

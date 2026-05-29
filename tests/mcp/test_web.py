@@ -72,6 +72,19 @@ def test_post_answer_records(client):
     assert state.answers == {"q1": "A"}
 
 
+def test_post_confidence_records(client):
+    c, state, _ = client
+    assert c.post("/confidence", json={"question_id": "q1", "value": 3}).status_code == 200
+    assert state.confidences == {"q1": 3}
+
+
+def test_post_confidence_validates_range_and_type(client):
+    c, state, _ = client
+    assert c.post("/confidence", json={"question_id": "q1", "value": 7}).status_code == 422
+    assert c.post("/confidence", json={"question_id": "q1", "value": "x"}).status_code == 422
+    assert state.confidences == {}
+
+
 def test_publish_calls_post_comment(client):
     c, state, posted = client
     from cognit.engine.models import Results, QuestionResult

@@ -60,7 +60,7 @@ def do_replace_question(state: QuizState, index: int, question: dict[str, Any]) 
 
 def do_get_answers(state: QuizState) -> dict[str, Any]:
     snap = state.snapshot()
-    return {"answers": snap["answers"], "quiz": snap["quiz"]}
+    return {"answers": snap["answers"], "confidences": snap["confidences"], "quiz": snap["quiz"]}
 
 
 def do_grade(state: QuizState, *, llm: LLMClient) -> dict[str, Any]:
@@ -137,7 +137,10 @@ def _build_mcp(state: QuizState, llm: LLMClient, diffs: _DiffProvider) -> FastMC
 
     @mcp.tool()
     def get_answers() -> dict[str, Any]:
-        """Read back the answers the developer selected in the browser + the current quiz."""
+        """Read back what the developer did in the browser: their `answers`, their
+        per-question `confidences` (1–5 self-ratings, where given), and the current quiz.
+        Confidence vs. correctness is useful for follow-ups — e.g. probe again where they
+        were confident but wrong, or drill a concept they were unsure about."""
         return do_get_answers(state)
 
     @mcp.tool()

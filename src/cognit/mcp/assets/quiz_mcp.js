@@ -122,6 +122,16 @@ async function postAnswer(qid, value) {
   }
 }
 
+// Persist a confidence rating to the server (fire-and-forget) so the host agent can see
+// confidence vs. correctness. Local state is authoritative for the UI; this just mirrors it.
+function postConfidence(qid, value) {
+  fetch("/confidence", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ question_id: qid, value }),
+  }).catch((e) => console.error("confidence POST failed:", e));
+}
+
 // Re-POST every non-empty local answer (idempotent) so the server has everything
 // before grading — covers open answers that only POST on blur.
 async function flushAnswers() {
@@ -436,7 +446,7 @@ function calibration(q) {
 }
 
 function renderConfidencePrompt(q, i) {
-  const pick = (n) => { confidence[q.id] = n; renderQuestions(); };
+  const pick = (n) => { confidence[q.id] = n; postConfidence(q.id, n); renderQuestions(); };
   const scale = el("div", { class: "confidence__scale", role: "radiogroup", "aria-label": "Confidence" },
     CONFIDENCE_SCALE.map(([n, label]) => el("button", {
       class: "confidence__btn", type: "button", title: label, "aria-label": `${n} — ${label}`,

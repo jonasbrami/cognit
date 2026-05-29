@@ -108,6 +108,7 @@ class QuestionResult(BaseModel):
     correct: bool
     score: int = Field(ge=0, le=100)  # 0..100
     feedback: str  # "" for deterministic questions
+    confidence: int | None = Field(default=None, ge=1, le=5)  # reader's 1–5 self-rating, if given
 
 
 class Results(BaseModel):

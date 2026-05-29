@@ -88,6 +88,25 @@ def test_get_answers(tmp_path: Path):
     assert out["quiz"]["questions"][0]["id"] == "q1"
 
 
+def test_get_answers_includes_confidences(tmp_path: Path):
+    state = _state(tmp_path)
+    srv.do_set_quiz(state, _draft())
+    state.record_answer("q1", "A")
+    state.record_confidence("q1", 2)
+    out = srv.do_get_answers(state)
+    assert out["confidences"] == {"q1": 2}
+
+
+def test_grade_attaches_confidence(tmp_path: Path):
+    state = _state(tmp_path)
+    srv.do_set_quiz(state, _draft())
+    state.record_answer("q1", "A")
+    state.record_confidence("q1", 4)
+    out = srv.do_grade(state, llm=FakeLLM())
+    assert out["ok"] is True
+    assert out["per_question"][0]["confidence"] == 4
+
+
 def test_grade_without_quiz_returns_structured_failure(tmp_path: Path):
     out = srv.do_grade(_state(tmp_path), llm=FakeLLM())
     assert out["ok"] is False
