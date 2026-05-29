@@ -1,14 +1,17 @@
 """FastAPI app: the browser projection over QuizState.
 
 Endpoints:
-  GET  /state    — JSON {quiz, answers, results}; the browser polls this
-  POST /answer   — {question_id, value} → record a browser-side answer
-  POST /grade    — human-triggered "Submit quiz": grade now (handler-owned, same path
-                   the agent's `grade` tool uses) and store results. Returns the Results.
-  POST /publish  — human-gated: render + post the results scorecard comment (reuses
-                   ghio.pr.post_comment). The ONLY outward-facing action; never an agent tool.
-  GET  /         — the quiz page (polls /state)
-  GET  /static/* — bundled assets
+  GET  /state         — JSON {quiz, answers, confidences, results}; the browser polls this
+  POST /answer        — {question_id, value} → record a browser-side answer
+  POST /confidence    — {question_id, value:1-5} → record the reader's confidence rating
+  GET  /diff          — ?path= → the unified-diff section for one changed file (inline hunks)
+  GET  /changed-files — JSON {files:[...]} for the diff coverage map
+  POST /grade         — human-triggered "Submit quiz": grade now (handler-owned, same path
+                        the agent's `grade` tool uses) and store results. Returns the Results.
+  POST /publish       — human-gated: render + post the results scorecard comment (reuses
+                        ghio.pr.post_comment). The ONLY outward-facing action; never an agent tool.
+  GET  /              — the quiz page (polls /state)
+  GET  /static/*      — bundled assets
 """
 
 from __future__ import annotations
@@ -80,6 +83,21 @@ def build_web_app(
                 status_code=422,
             )
         state.record_answer(qid, value)
+        return JSONResponse({"ok": True})
+
+    @app.post("/confidence")
+    async def post_confidence(req: Request) -> JSONResponse:
+        body = await req.json()
+        qid, value = body.get("question_id"), body.get("value")
+        # bool is an int subclass — reject it explicitly so True/False can't sneak through.
+        if not isinstance(qid, str) or isinstance(value, bool) or not isinstance(value, int):
+            return JSONResponse(
+                {"ok": False, "error": "question_id (string) and value (int) required"},
+                status_code=422,
+            )
+        if not (1 <= value <= 5):
+            return JSONResponse({"ok": False, "error": "value must be 1–5"}, status_code=422)
+        state.record_confidence(qid, value)
         return JSONResponse({"ok": True})
 
     @app.get("/diff", response_class=PlainTextResponse)

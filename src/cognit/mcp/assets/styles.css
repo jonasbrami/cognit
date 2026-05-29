@@ -885,3 +885,41 @@ a.codepanel__file:hover { color: var(--blue); text-decoration: underline; }
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .sidelist.coverage li.uncovered .coverage__file { color: var(--fg-mute); }
+
+/* confidence rating (practice mode, before reveal) ───────────────── */
+.confidence {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--bg-subtle);
+}
+.confidence__q { font-size: 14px; font-weight: 600; color: var(--fg); margin-bottom: 12px; }
+.confidence__scale { display: flex; gap: 8px; }
+.confidence__btn {
+  flex: 1; min-width: 0;
+  padding: 12px 0;
+  font: 600 15px var(--mono);
+  color: var(--fg);
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 120ms, background 120ms;
+}
+.confidence__btn:hover { border-color: var(--blue); background: var(--blue-bg); }
+.confidence__btn:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+.confidence__ends { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--fg-faint); }
+
+/* calibration verdict (shown on the revealed card) */
+.calibration {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 12px;
+  margin-top: 12px; padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  background: var(--bg-subtle);
+  color: var(--fg-mute);
+}
+.calibration__rating { font-family: var(--mono); font-size: 12px; }
+.calibration__flag { font-weight: 500; }
+.calibration--over { background: var(--red-bg); color: var(--red); }
+.calibration--under { background: var(--orange-bg); color: var(--orange); }

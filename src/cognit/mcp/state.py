@@ -21,6 +21,7 @@ class QuizState:
         self._lock = threading.Lock()
         self.quiz: Quiz | None = None
         self.answers: dict[str, str] = {}
+        self.confidences: dict[str, int] = {}  # question_id -> reader's 1–5 self-rating
         self.results: Results | None = None
         self._load()
 
@@ -34,6 +35,7 @@ class QuizState:
         if data.get("quiz"):
             self.quiz = Quiz.model_validate(data["quiz"])
         self.answers = dict(data.get("answers") or {})
+        self.confidences = {k: int(v) for k, v in (data.get("confidences") or {}).items()}
         if data.get("results"):
             self.results = Results.model_validate(data["results"])
 
@@ -41,6 +43,7 @@ class QuizState:
         payload = {
             "quiz": self.quiz.model_dump(mode="json") if self.quiz else None,
             "answers": self.answers,
+            "confidences": self.confidences,
             "results": self.results.model_dump(mode="json") if self.results else None,
         }
         self._snapshot_path.write_text(json.dumps(payload))
@@ -49,6 +52,7 @@ class QuizState:
         with self._lock:
             self.quiz = quiz
             self.answers = {}
+            self.confidences = {}
             self.results = None
             self._persist()
 
@@ -61,12 +65,18 @@ class QuizState:
             qs[index] = question
             self.quiz = self.quiz.model_copy(update={"questions": qs})
             self.answers.pop(old_id, None)
+            self.confidences.pop(old_id, None)
             self.results = None
             self._persist()
 
     def record_answer(self, question_id: str, value: str) -> None:
         with self._lock:
             self.answers[question_id] = value
+            self._persist()
+
+    def record_confidence(self, question_id: str, value: int) -> None:
+        with self._lock:
+            self.confidences[question_id] = value
             self._persist()
 
     def set_results(self, results: Results) -> None:
@@ -95,5 +105,6 @@ class QuizState:
             return {
                 "quiz": self.quiz.model_dump(mode="json") if self.quiz else None,
                 "answers": dict(self.answers),
+                "confidences": dict(self.confidences),
                 "results": self.results.model_dump(mode="json") if self.results else None,
             }

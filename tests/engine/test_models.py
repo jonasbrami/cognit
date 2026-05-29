@@ -111,6 +111,16 @@ def test_objective_questions_carry_optional_explanation():
     )
 
 
+def test_question_result_confidence_optional():
+    r = QuestionResult(question_id="q1", correct=True, score=100, feedback="")
+    assert r.confidence is None  # backward compatible: defaults to None
+    r2 = QuestionResult(question_id="q1", correct=False, score=0, feedback="", confidence=5)
+    assert r2.confidence == 5
+    for bad in (0, 6):
+        with pytest.raises(ValidationError):
+            QuestionResult(question_id="q1", correct=True, score=100, feedback="", confidence=bad)
+
+
 def test_anchor_round_trip():
     a = Anchor(path="src/cognit/mcp/state.py", start_line=40, end_line=46)
     assert Anchor.model_validate(a.model_dump()) == a
