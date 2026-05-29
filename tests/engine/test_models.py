@@ -1,6 +1,7 @@
 import pytest
 from pydantic import ValidationError
 from cognit.engine.models import (
+    Anchor,
     Quiz,
     MCQQuestion,
     MermaidQuestion,
@@ -108,3 +109,54 @@ def test_objective_questions_carry_optional_explanation():
         ).explanation
         == ""
     )
+
+
+def test_anchor_round_trip():
+    a = Anchor(path="src/cognit/mcp/state.py", start_line=40, end_line=46)
+    assert Anchor.model_validate(a.model_dump()) == a
+
+
+def test_anchor_single_line_ok():
+    a = Anchor(path="x.py", start_line=12, end_line=12)
+    assert a.start_line == a.end_line == 12
+
+
+def test_anchor_rejects_reversed_range():
+    with pytest.raises(ValidationError):
+        Anchor(path="x.py", start_line=10, end_line=5)
+
+
+def test_anchor_rejects_nonpositive_lines():
+    with pytest.raises(ValidationError):
+        Anchor(path="x.py", start_line=0, end_line=4)
+
+
+def test_questions_carry_optional_anchor():
+    anchor = Anchor(path="src/a.py", start_line=3, end_line=9)
+    mcq = MCQQuestion(id="q1", prompt="?", options=["a", "b"], answer="a", anchor=anchor)
+    assert mcq.anchor == anchor
+    # every type accepts an anchor
+    assert (
+        MermaidQuestion(
+            id="q2", prompt="?", options={"A": "flowchart LR\nA-->B"}, answer="A", anchor=anchor
+        ).anchor
+        == anchor
+    )
+    assert OpenQuestion(id="q3", prompt="?", rubric="r", anchor=anchor).anchor == anchor
+    assert TrueFalseQuestion(id="q4", prompt="?", answer=True, anchor=anchor).anchor == anchor
+
+
+def test_anchor_defaults_to_none_backward_compatible():
+    # questions without an anchor (old cached quizzes) still validate, anchor is None
+    assert MCQQuestion(id="q1", prompt="?", options=["a", "b"], answer="a").anchor is None
+    assert OpenQuestion(id="q3", prompt="?", rubric="r").anchor is None
+    # and a quiz dict produced before the field existed round-trips
+    legacy = {
+        "version": "1",
+        "pr_number": 7,
+        "questions": [
+            {"type": "mcq", "id": "q1", "prompt": "?", "options": ["a", "b"], "answer": "a"}
+        ],
+    }
+    quiz = Quiz.model_validate(legacy)
+    assert quiz.questions[0].anchor is None

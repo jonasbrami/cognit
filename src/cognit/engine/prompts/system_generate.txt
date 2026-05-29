@@ -77,6 +77,14 @@ Each question is one of these four shapes. **Watch the `answer` field — its ty
 - **`tf`** — `answer` is a JSON **boolean** (`true`/`false`), not a string.
 - **`open`** — requires a `rubric`; it has **no `answer`** and **no `explanation`**.
 
+**Anchor each question to its code.** Whenever a question probes specific lines, add an `anchor` so the reader sees that exact hunk inline next to the question:
+
+```json
+"anchor": {"path": "<a path from changed_files>", "start_line": N, "end_line": M}
+```
+
+Use the new-side line numbers of the relevant lines (`start_line` ≤ `end_line`; a single line is `start == end`). Prefer the tightest range that frames the behavior — the few lines that make the question answerable, not the whole file. Omit `anchor` only for questions not tied to one location (e.g. a broad `open` rationale question spanning the change). The anchor drives an inline code panel; it never affects grading. It works on any question type and is added alongside the fields above.
+
 When the reader asks you to change or skip a specific question, use `replace_question(index, question)` (0-based index) — same per-type shapes as above.
 
 When the reader says they're ready to be graded, call `grade`.

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from cognit.comment.render import render_results_inlined
@@ -38,13 +38,16 @@ def build_web_app(
     *,
     post_comment: Callable[[str], str],
     grade: Callable[[], Results] | None = None,
+    diff_section: Callable[[str], str] | None = None,
     pr_url: str = "",
 ) -> FastAPI:
     """Browser projection over `state`.
 
     `grade` (when provided) is invoked by POST /grade — the human-clicked "Submit quiz"
     button. It runs the same handler-owned grading the agent's `grade` tool uses and
-    must store the result in `state`; we return the Results to the page. `pr_url` feeds
+    must store the result in `state`; we return the Results to the page. `diff_section`
+    (when provided) returns the unified-diff section for one changed file — GET /diff
+    serves it so the browser can show a question's anchored hunk inline. `pr_url` feeds
     the page chrome (the "on GitHub" links).
     """
     app = FastAPI()
@@ -72,6 +75,12 @@ def build_web_app(
             )
         state.record_answer(qid, value)
         return JSONResponse({"ok": True})
+
+    @app.get("/diff", response_class=PlainTextResponse)
+    def get_diff(path: str = "") -> PlainTextResponse:
+        if diff_section is None:
+            return PlainTextResponse("diff not available", status_code=503)
+        return PlainTextResponse(diff_section(path))
 
     @app.post("/grade")
     async def do_grade() -> JSONResponse:

@@ -82,6 +82,7 @@ function quizSig(q) {
   return JSON.stringify(q.questions.map((x) => [
     x.id, x.type, x.prompt,
     x.type === "mcq" ? x.options : x.type === "mermaid" ? Object.keys(x.options) : null,
+    x.anchor ? [x.anchor.path, x.anchor.start_line, x.anchor.end_line] : null,
   ]));
 }
 
@@ -238,6 +239,58 @@ function renderTF(q) {
   return [wrap];
 }
 
+// ── inline code context (anchors) ───────────────────────────────
+// A collapsible panel under a question that shows the anchored diff hunk. The hunk
+// is fetched from GET /diff on first expand and rendered DOM-built (textContent only,
+// never innerHTML) so agent/repo-supplied diff text can't inject markup.
+const _diffCache = {};  // path -> diff text (one fetch per file per page)
+
+function renderDiff(text) {
+  const pre = el("pre", { class: "diff" });
+  String(text).split("\n").forEach((line) => {
+    let cls = "diff-line";
+    if (line.startsWith("@@")) cls += " hunk";
+    else if (/^(diff |index |\+\+\+|---)/.test(line)) cls += " fmeta";
+    else if (line.startsWith("+")) cls += " add";
+    else if (line.startsWith("-")) cls += " del";
+    pre.appendChild(el("div", { class: cls, text: line === "" ? " " : line }));
+  });
+  return pre;
+}
+
+async function loadHunk(path, body) {
+  body.textContent = "Loading…";
+  try {
+    if (!(path in _diffCache)) {
+      _diffCache[path] = await (await fetch("/diff?path=" + encodeURIComponent(path))).text();
+    }
+    body.textContent = "";
+    body.appendChild(renderDiff(_diffCache[path]));
+  } catch (e) {
+    body.textContent = "Could not load the diff for this file.";
+  }
+}
+
+function renderAnchor(q) {
+  const a = q.anchor;
+  if (!a || !a.path) return null;
+  const range = a.start_line === a.end_line ? `${a.start_line}` : `${a.start_line}–${a.end_line}`;
+  const body = el("div", { class: "codepanel__body" });
+  const details = el("details", { class: "codepanel" }, [
+    el("summary", { class: "codepanel__summary" }, [
+      el("span", { class: "codepanel__icon", "aria-hidden": "true", text: "▸" }),
+      el("span", { class: "codepanel__file", text: a.path }),
+      el("span", { class: "codepanel__lines", text: `:${range}` }),
+    ]),
+    body,
+  ]);
+  let loaded = false;
+  details.addEventListener("toggle", () => {
+    if (details.open && !loaded) { loaded = true; loadHunk(a.path, body); }
+  });
+  return details;
+}
+
 function renderQuestion(q, i) {
   const inputsByType = { mcq: renderMCQ, mermaid: renderMermaid, open: renderOpen, tf: renderTF };
   const inputs = inputsByType[q.type](q);
@@ -248,6 +301,7 @@ function renderQuestion(q, i) {
     ]),
     el("div", { class: "file__body" }, [
       el("p", { class: "prompt" }, renderPrompt(q.prompt)),
+      renderAnchor(q),  // null when no anchor — el() skips null children
       ...inputs,
     ]),
   ]);
@@ -357,7 +411,7 @@ function renderSummary(res) {
 function renderResultCard(q, r, i) {
   const cls = scoreClass(r.score);
   const verdict = cls === "ok" ? "correct" : cls === "bad" ? "incorrect" : "partial";
-  const body = [el("p", { class: "prompt" }, renderPrompt(q.prompt))];
+  const body = [el("p", { class: "prompt" }, renderPrompt(q.prompt)), renderAnchor(q)];
   const userVal = answers[q.id];
   if (q.type === "mcq" || q.type === "tf") {
     const correctAnswer = q.type === "tf" ? String(q.answer) : q.answer;
