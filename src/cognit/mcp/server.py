@@ -161,7 +161,13 @@ def _build_mcp(state: QuizState, llm: LLMClient, diffs: _DiffProvider) -> FastMC
 
 
 def _start_web(
-    state: QuizState, *, llm: LLMClient, pr_url: str, port: int, diffs: _DiffProvider
+    state: QuizState,
+    *,
+    llm: LLMClient,
+    pr_url: str,
+    port: int,
+    diffs: _DiffProvider,
+    branch: str,
 ) -> None:
     app = build_web_app(
         state,
@@ -170,6 +176,7 @@ def _start_web(
         diff_section=lambda path: do_file_diff(path, diffs.sections()),
         changed_files=lambda: list(diffs.sections()),
         pr_url=pr_url,
+        branch=branch,
     )
     url = f"http://127.0.0.1:{port}"
 
@@ -213,6 +220,7 @@ def main() -> None:
     pr_number = int(os.environ["COGNIT_PR_NUMBER"])
     port = int(os.environ["COGNIT_HTTP_PORT"])
     snapshot = Path(os.environ["COGNIT_SNAPSHOT_PATH"])
+    branch = os.environ.get("COGNIT_BRANCH", "")
 
     state = QuizState(pr_number=pr_number, snapshot_path=snapshot)
     # Best-effort early collision detection: probe the port so an obvious conflict
@@ -229,7 +237,7 @@ def main() -> None:
     threading.Thread(
         target=_start_web,
         args=(state,),
-        kwargs={"llm": llm, "pr_url": pr_url, "port": port, "diffs": diffs},
+        kwargs={"llm": llm, "pr_url": pr_url, "port": port, "diffs": diffs, "branch": branch},
         daemon=True,
     ).start()
     _build_mcp(state, llm, diffs).run()

@@ -41,6 +41,7 @@ def build_web_app(
     diff_section: Callable[[str], str] | None = None,
     changed_files: Callable[[], list[str]] | None = None,
     pr_url: str = "",
+    branch: str = "",
 ) -> FastAPI:
     """Browser projection over `state`.
 
@@ -56,11 +57,13 @@ def build_web_app(
     app = FastAPI()
     app.mount("/static", StaticFiles(directory=str(_ASSETS_DIR)), name="static")
     pr_url_attr = _html.escape(pr_url, quote=True)
+    branch_attr = _html.escape(branch, quote=True)
     index_html = (
         (_ASSETS_DIR / "index.html")
         .read_text()
         .replace("__PR__", str(state.pr_number))
         .replace("__PR_URL_ATTR__", pr_url_attr)
+        .replace("__BRANCH_ATTR__", branch_attr)
     )
 
     @app.get("/state")

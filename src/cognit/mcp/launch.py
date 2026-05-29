@@ -76,6 +76,7 @@ def build_launch_spec(
         "COGNIT_HTTP_PORT": str(port),
         "COGNIT_SNAPSHOT_PATH": str(snapshot_path),
         "COGNIT_REPO_ROOT": str(repo_root),
+        "COGNIT_BRANCH": branch,  # so the browser can deep-link anchors to files on this branch
     }
     argv = [
         "claude",

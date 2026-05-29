@@ -131,6 +131,33 @@ def test_grade_endpoint_grades_and_stores(tmp_path: Path) -> None:
         t.join(timeout=2)
 
 
+def test_index_includes_branch_for_github_links(tmp_path: Path) -> None:
+    state = QuizState(pr_number=7, snapshot_path=tmp_path / "s.json")
+    state.set_quiz(
+        Quiz(
+            pr_number=7,
+            questions=[
+                MCQQuestion(id="q1", prompt="p", options=["A", "B"], answer="A", explanation="x")
+            ],
+        )
+    )
+    app = build_web_app(
+        state,
+        post_comment=lambda b: "http://c/1",
+        branch="feat/cool-thing",
+        pr_url="https://github.com/o/r/pull/7",
+    )
+    port = _free_port()
+    server, t = _serve(app, port)
+    try:
+        html = httpx.get(f"http://127.0.0.1:{port}/").text
+        assert 'data-branch="feat/cool-thing"' in html
+        assert "__BRANCH_ATTR__" not in html  # placeholder templated out
+    finally:
+        server.should_exit = True
+        t.join(timeout=2)
+
+
 def test_grade_endpoint_501_when_unavailable(client):
     # the default fixture app wires no `grade` callable
     c, _state, _ = client
