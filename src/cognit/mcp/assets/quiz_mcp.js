@@ -411,10 +411,59 @@ function isCorrectLocal(q) {
   return q.type === "tf" ? v === String(q.answer) : v === q.answer;
 }
 
-// Practice mode: a committed deterministic question reveals immediately and locks.
-function shouldReveal(q) { return !examMode && isDeterministic(q) && isAnswered(q); }
+// Practice mode, after committing a deterministic question: first rate confidence,
+// then reveal. Confidence is local + honor-system (the answer's already in the page).
+const confidence = {};  // qid -> 1..5
+const CONFIDENCE_SCALE = [
+  [1, "Guessing"], [2, "Unsure"], [3, "Maybe"], [4, "Fairly sure"], [5, "Certain"],
+];
+function needsConfidence(q) {
+  return !examMode && isDeterministic(q) && isAnswered(q) && confidence[q.id] == null;
+}
+function shouldReveal(q) {
+  return !examMode && isDeterministic(q) && isAnswered(q) && confidence[q.id] != null;
+}
+
+// Calibration verdict from (confidence, correctness): the teachable case is being
+// confident and wrong. Returns null when nothing notable.
+function calibration(q) {
+  const c = confidence[q.id];
+  if (c == null) return null;
+  const correct = isCorrectLocal(q);
+  if (!correct && c >= 4) return { cls: "over", text: "Confident but wrong — worth a closer look." };
+  if (correct && c <= 2) return { cls: "under", text: "Right — but you weren't sure. Lock in why." };
+  return null;
+}
+
+function renderConfidencePrompt(q, i) {
+  const pick = (n) => { confidence[q.id] = n; renderQuestions(); };
+  const scale = el("div", { class: "confidence__scale", role: "radiogroup", "aria-label": "Confidence" },
+    CONFIDENCE_SCALE.map(([n, label]) => el("button", {
+      class: "confidence__btn", type: "button", title: label, "aria-label": `${n} — ${label}`,
+      text: String(n), onclick: () => pick(n),
+    })));
+  return el("article", { class: "file" }, [
+    el("div", { class: "file__head" }, [
+      el("div", { class: "file__title", text: `Question ${i + 1}` }),
+      el("div", { class: "file__type", text: TYPE_LABEL[q.type] }),
+    ]),
+    el("div", { class: "file__body" }, [
+      el("p", { class: "prompt" }, renderPrompt(q.prompt)),
+      renderAnchor(q),
+      el("div", { class: "confidence" }, [
+        el("div", { class: "confidence__q", text: "How sure are you?" }),
+        scale,
+        el("div", { class: "confidence__ends" }, [
+          el("span", { text: "1 · guessing" }),
+          el("span", { text: "5 · certain" }),
+        ]),
+      ]),
+    ]),
+  ]);
+}
 
 function renderQuestion(q, i) {
+  if (needsConfidence(q)) return renderConfidencePrompt(q, i);  // rate confidence, then reveal
   if (shouldReveal(q)) {
     // Reuse the results card (correct/your-pick rows + explanation), with a locally
     // computed verdict — no server round-trip, the answer is already in /state.
@@ -651,6 +700,14 @@ function renderResultCard(q, r, i) {
     body.push(el("div", { class: "feedback" }, [
       el("div", { class: "feedback__head" }, ["Why"]),
       el("p", { text: q.explanation }),
+    ]));
+  }
+  if (confidence[q.id] != null) {
+    const cal = calibration(q);
+    const label = (CONFIDENCE_SCALE.find(([n]) => n === confidence[q.id]) || [, ""])[1];
+    body.push(el("div", { class: "calibration" + (cal ? ` calibration--${cal.cls}` : "") }, [
+      el("span", { class: "calibration__rating", text: `Confidence ${confidence[q.id]}/5 · ${label}` }),
+      cal ? el("span", { class: "calibration__flag", text: cal.text }) : null,
     ]));
   }
   return el("article", { class: `file ${cls}` }, [
