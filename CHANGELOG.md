@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file. The format 
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-05-29
+
+Learning-acceleration UX — the quiz now teaches while you take it, with the code in front of you.
+
+### Added
+- **Inline code context per question.** A question can carry an `anchor` (`{path, start_line, end_line}`) and the browser shows that exact diff hunk inline, in a collapsible panel (closed by default) clipped to the anchored lines ± a few lines of context, with the anchored lines highlighted. The filename links to the file on the PR's branch in GitHub, deep-linked to the line range — and only when it's actually one of the PR's changed files, so the link never 404s. The generation prompt now emits anchors. (#26, #29, #30)
+- **Diff coverage map.** A sidebar panel lists the PR's changed files with covered / uncovered markers and an "N of M files probed" count, so you can see at a glance what the quiz does and doesn't probe. Backed by a new `GET /changed-files`; coverage uses the same exact / repo-relative-suffix / basename matching as `file_diff`. (#27)
+- **Practice mode with immediate per-question feedback.** Deterministic questions (mcq / tf / mermaid) now reveal — correct/incorrect, the right answer, and the explanation — the moment you commit, instead of only after Submit. A sidebar "Reveal answers as I go" toggle switches between this (default) and the classic batch/exam flow, sticky per browser. Open questions still grade at Submit. (#28)
+- **Confidence rating + calibration.** Before a practice-mode reveal you rate how sure you are (1–5); the revealed card flags miscalibration — "confident but wrong" or "right but you weren't sure". The rating is persisted server-side (`POST /confidence`, in the `QuizState` snapshot) and surfaced to the host agent via `get_answers` and the grade result (`QuestionResult.confidence`), so it can re-probe confident-but-wrong answers or drill concepts you were unsure about. (#31)
+
+### Notes
+- All additive and backward-compatible: quizzes and cached snapshots without the new optional fields (`anchor`, `confidences`) load unchanged, and exam mode reproduces the prior answering flow byte-for-byte.
+
 ## [0.3.0] — 2026-05-28
 
 ### Changed
