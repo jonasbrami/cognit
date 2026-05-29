@@ -39,6 +39,11 @@ let suppressResults = false; // local "Discard" → show answering even though r
 let grading = false;        // grading in flight → pause polling re-renders
 let renderedSig = null;     // signature of the rendered question structure
 let view = null;            // waiting | answering | results | published
+// Practice mode (default): deterministic questions reveal the answer + explanation the
+// moment you commit. Exam mode: the classic batch flow (answer all, then submit). Sticky
+// per browser via localStorage. (Open questions always grade at submit — there's no
+// client-side answer to reveal.)
+let examMode = localStorage.getItem("cognit.examMode") === "1";
 
 // ── small DOM helper ────────────────────────────────────────────
 function el(tag, attrs = {}, children = []) {
@@ -121,6 +126,7 @@ async function flushAnswers() {
 // ── question renderers ──────────────────────────────────────────
 function selectMCQOption(q, opts, idx) {
   postAnswer(q.id, q.options[idx]);
+  if (!examMode) { renderQuestions(); return; }  // practice: re-render to reveal + lock
   opts.forEach((o, j) => {
     o.classList.toggle("selected", j === idx);
     o.setAttribute("aria-checked", j === idx ? "true" : "false");
@@ -169,6 +175,7 @@ function renderMermaid(q) {
       tabindex: i === 0 ? "0" : "-1",
       onclick: () => {
         postAnswer(q.id, label);
+        if (!examMode) { renderQuestions(); return; }  // practice: re-render to reveal + lock
         cards.forEach((c, j) => {
           c.classList.toggle("selected", j === i);
           c.setAttribute("aria-checked", j === i ? "true" : "false");
@@ -217,6 +224,7 @@ function renderTF(q) {
       text: v.charAt(0).toUpperCase() + v.slice(1),
       onclick: () => {
         postAnswer(q.id, v);
+        if (!examMode) { renderQuestions(); return; }  // practice: re-render to reveal + lock
         cells.forEach((c, j) => {
           c.classList.toggle("sel", j === i);
           c.setAttribute("aria-checked", j === i ? "true" : "false");
@@ -362,7 +370,26 @@ function renderAnchor(q) {
   return panel;
 }
 
+const DETERMINISTIC = new Set(["mcq", "tf", "mermaid"]);
+function isDeterministic(q) { return DETERMINISTIC.has(q.type); }
+
+// Correctness we can compute on the client (the answer ships in /state). tf compares
+// against the stringified boolean; mcq is full option text; mermaid is the option key.
+function isCorrectLocal(q) {
+  const v = answers[q.id];
+  return q.type === "tf" ? v === String(q.answer) : v === q.answer;
+}
+
+// Practice mode: a committed deterministic question reveals immediately and locks.
+function shouldReveal(q) { return !examMode && isDeterministic(q) && isAnswered(q); }
+
 function renderQuestion(q, i) {
+  if (shouldReveal(q)) {
+    // Reuse the results card (correct/your-pick rows + explanation), with a locally
+    // computed verdict — no server round-trip, the answer is already in /state.
+    const correct = isCorrectLocal(q);
+    return renderResultCard(q, { question_id: q.id, correct, score: correct ? 100 : 0, feedback: "" }, i);
+  }
   const inputsByType = { mcq: renderMCQ, mermaid: renderMermaid, open: renderOpen, tf: renderTF };
   const inputs = inputsByType[q.type](q);
   return el("article", { class: "file" }, [
@@ -379,8 +406,25 @@ function renderQuestion(q, i) {
 }
 
 // ── sidebar (questions state) ───────────────────────────────────
+function setExamMode(on) {
+  examMode = on;
+  localStorage.setItem("cognit.examMode", on ? "1" : "0");
+  renderQuestions();
+}
+
 function renderSidebar() {
   sidebarRoot.innerHTML = "";
+  sidebarRoot.appendChild(el("div", { class: "side-block" }, [
+    el("div", { class: "side-title", text: "Mode" }),
+    el("label", { class: "mode-toggle" }, [
+      el("input", {
+        type: "checkbox",
+        checked: !examMode,  // checked = practice (reveal as you go)
+        onchange: (e) => setExamMode(!e.target.checked),
+      }),
+      el("span", { text: "Reveal answers as I go" }),
+    ]),
+  ]));
   sidebarRoot.appendChild(el("div", { class: "side-block" }, [
     el("div", { class: "side-title", text: "Progress" }),
     el("div", { class: "progress" },
@@ -470,9 +514,11 @@ function renderReviewbarSubmit() {
   reviewbar.className = "reviewbar is-submit";
   reviewbar.innerHTML = "";
   const hasOpen = quiz.questions.some(q => q.type === "open");
-  reviewbar.appendChild(el("div", { class: "reviewbar__msg" }, [
-    hasOpen ? "Open question grades after submit." : "Answers stay private until you submit.",
-  ]));
+  const msg = !examMode
+    ? (hasOpen ? "Answers reveal as you go · the open question grades at submit."
+               : "Answers reveal as you go · private until you submit.")
+    : (hasOpen ? "Open question grades after submit." : "Answers stay private until you submit.");
+  reviewbar.appendChild(el("div", { class: "reviewbar__msg" }, [msg]));
   reviewbar.appendChild(el("div", { class: "reviewbar__spacer" }));
   const btn = el("button", {
     class: "btn btn--primary", type: "button", text: "Submit quiz", onclick: submitQuiz,
