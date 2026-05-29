@@ -168,6 +168,7 @@ def _start_web(
         post_comment=lambda body: gh_post_comment(pr_url, body),
         grade=lambda: grade_state(state, llm=llm),
         diff_section=lambda path: do_file_diff(path, diffs.sections()),
+        changed_files=lambda: list(diffs.sections()),
         pr_url=pr_url,
     )
     url = f"http://127.0.0.1:{port}"

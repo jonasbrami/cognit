@@ -384,6 +384,52 @@ function renderSidebar() {
         ` Q${i + 1} · ${TYPE_LABEL[q.type].split(" ")[0].toLowerCase()}`,
       ]))),
   ]));
+  renderCoverageBlock();  // async: appends "Diff coverage" once the file list is fetched
+}
+
+// ── diff coverage map ───────────────────────────────────────────
+// Sidebar list of the PR's changed files, marked covered when some question is
+// anchored to them. Display only (the "ask host to cover this" steer is Track B).
+let changedFiles = null;  // string[] — fetched once per page (null = not yet fetched)
+
+async function ensureChangedFiles() {
+  if (changedFiles !== null) return changedFiles;
+  try {
+    const r = await fetch("/changed-files");
+    changedFiles = r.ok ? ((await r.json()).files || []) : [];
+  } catch (e) {
+    console.warn("changed-files fetch failed", e);
+    changedFiles = [];
+  }
+  return changedFiles;
+}
+
+// Mirror of the server's do_file_diff path matching (exact, repo-relative suffix,
+// or basename) so a covered marker lines up with what /diff would actually serve.
+function fileMatchesAnchor(file, anchorPath) {
+  if (!anchorPath) return false;
+  if (file === anchorPath || file.endsWith("/" + anchorPath) || anchorPath.endsWith("/" + file)) {
+    return true;
+  }
+  return file.split("/").pop() === anchorPath.split("/").pop();
+}
+
+async function renderCoverageBlock() {
+  const files = await ensureChangedFiles();
+  if (!files.length || !quiz) return;  // no diff info, or quiz cleared while awaiting
+  sidebarRoot.querySelector(".side-block--coverage")?.remove();  // idempotent re-render
+  const anchorPaths = quiz.questions.map((q) => q.anchor && q.anchor.path).filter(Boolean);
+  const rows = files.map((f) => ({ path: f, covered: anchorPaths.some((ap) => fileMatchesAnchor(f, ap)) }));
+  const coveredCount = rows.filter((r) => r.covered).length;
+  sidebarRoot.appendChild(el("div", { class: "side-block side-block--coverage" }, [
+    el("div", { class: "side-title", text: "Diff coverage" }),
+    el("div", { class: "progress-text", text: `${coveredCount} of ${rows.length} files probed` }),
+    el("ul", { class: "sidelist coverage" },
+      rows.map((r) => el("li", { class: r.covered ? "covered" : "uncovered", title: r.path }, [
+        el("span", { class: `ic ${r.covered ? "ok" : "empty"}`, text: r.covered ? "✓" : "○" }),
+        el("span", { class: "coverage__file", text: ` ${r.path.split("/").pop()}` }),
+      ]))),
+  ]));
 }
 
 function updateSidebarProgress() {
